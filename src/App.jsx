@@ -1,4 +1,20 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+
+// ─── localStorage永続化フック ─────────────────────────────────────
+function useLocalStorage(key, initialValue) {
+  const [state, setState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : (typeof initialValue === "function" ? initialValue() : initialValue);
+    } catch {
+      return typeof initialValue === "function" ? initialValue() : initialValue;
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
+  }, [key, state]);
+  return [state, setState];
+}
 
 // ─── ユーティリティ ───────────────────────────────────────────────
 const fmt = (d) => {
@@ -214,12 +230,12 @@ const S = {
 
 // ─── App ──────────────────────────────────────────────────────────
 export default function App() {
-  const [products,   setProducts]   = useState(initProducts);
-  const [inspectors, setInspectors] = useState(initInspectors);
-  const [orders,     setOrders]     = useState(initOrders);
+  const [products,   setProducts]   = useLocalStorage("ip_products", initProducts);
+  const [inspectors, setInspectors] = useLocalStorage("ip_inspectors", initInspectors);
+  const [orders,     setOrders]     = useLocalStorage("ip_orders", initOrders);
   // actuals: {"I1_2025-01-08": {qty:100, note:"機械トラブル"}}
-  const [actuals,    setActuals]    = useState({});
-  const [today,      setToday]      = useState("2025-01-08"); // 運用上の「今日」
+  const [actuals,    setActuals]    = useLocalStorage("ip_actuals", {});
+  const [today,      setToday]      = useLocalStorage("ip_today", "2025-01-08"); // 運用上の「今日」
   const [activeTab,  setActiveTab]  = useState("gantt");
   const [tooltip,    setTooltip]    = useState(null);
 
