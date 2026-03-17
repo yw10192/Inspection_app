@@ -169,20 +169,42 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
   // 納期昇順のベースソート
   const sortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
 
-  // 検査員ごとに「直前に検査していた製品ID」を追跡
-  const lastProductId = {};
-  inspectors.forEach(ins => { lastProductId[ins.id] = null; });
+  // ── 製品ごとの担当検査員を事前に割り当てる ──────────────────────
+  // 各製品（productId）について、担当できる検査員のうち
+  // その製品の検査速度が最も高い検査員を担当者として固定する。
+  // 同速度の場合は他の担当製品が少ない検査員を優先（負荷分散）。
+  const productAssignment = {}; // { productId: inspectorId }
+  const inspectorLoad = {};     // { inspectorId: 担当製品数 }
+  inspectors.forEach(ins => { inspectorLoad[ins.id] = 0; });
 
-  // 同じ製品を連続して検査するよう並び替える関数
-  // ルール: 前日と同じ製品が残っていれば最優先、次に納期順
-  function sortForContinuity(eligible, insId) {
-    const last = lastProductId[insId];
-    if (!last) return eligible;
+  // 製品を「その製品を担当できる検査員数」が少ない順に処理（希少スキルを先に割り当て）
+  const uniqueProductIds = [...new Set(orders.map(o => o.productId))];
+  const sortedProductIds = uniqueProductIds.sort((a, b) => {
+    const capA = inspectors.filter(i => i.canInspect.includes(a)).length;
+    const capB = inspectors.filter(i => i.canInspect.includes(b)).length;
+    return capA - capB;
+  });
+
+  for (const pid of sortedProductIds) {
+    const candidates = inspectors.filter(i => i.canInspect.includes(pid));
+    if (candidates.length === 0) continue;
+    // 速度降順 → 負荷昇順 で最適な担当者を選ぶ
+    const best = candidates.sort((a, b) => {
+      const spdDiff = (b.speedPerProduct[pid] || 0) - (a.speedPerProduct[pid] || 0);
+      if (spdDiff !== 0) return spdDiff;
+      return inspectorLoad[a.id] - inspectorLoad[b.id];
+    })[0];
+    productAssignment[pid] = best.id;
+    inspectorLoad[best.id]++;
+  }
+
+  // 担当製品以外は他の検査員が手伝える優先度を下げる並び替え
+  // eligible を「担当者が自分」→「担当者が他人（ヘルプ）」→ 納期順 で並べる
+  function sortByAssignment(eligible, insId) {
     return [...eligible].sort((a, b) => {
-      const aIsLast = a.productId === last ? 0 : 1;
-      const bIsLast = b.productId === last ? 0 : 1;
-      if (aIsLast !== bIsLast) return aIsLast - bIsLast;
-      // 同じ優先度なら納期順
+      const aPrimary = productAssignment[a.productId] === insId ? 0 : 1;
+      const bPrimary = productAssignment[b.productId] === insId ? 0 : 1;
+      if (aPrimary !== bPrimary) return aPrimary - bPrimary;
       return new Date(a.deadline) - new Date(b.deadline);
     });
   }
@@ -206,7 +228,7 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
           const base = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
-          const eligible = sortForContinuity(base, ins.id);
+          const eligible = sortByAssignment(base, ins.id);
           for (const order of eligible) {
             if (hoursLeft <= 0.001) break;
             const spd = ins.speedPerProduct[order.productId] || 0;
@@ -216,7 +238,6 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
             schedule[ins.id][dk].push({ orderId:order.id, productId:order.productId, qty:doQty, isActual:false, isPlanned:true });
             remaining[order.id] -= doQty;
             hoursLeft -= doQty / spd;
-            lastProductId[ins.id] = order.productId;
           }
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
@@ -224,7 +245,7 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
           const base = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
-          const eligible = sortForContinuity(base, ins.id);
+          const eligible = sortByAssignment(base, ins.id);
           for (const order of eligible) {
             if (qtyLeft <= 0) break;
             const doQty = Math.min(qtyLeft, remaining[order.id]);
@@ -232,7 +253,6 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
             schedule[ins.id][dk].push({ orderId:order.id, productId:order.productId, qty:doQty, isActual:true, isPlanned:false });
             remaining[order.id] -= doQty;
             qtyLeft -= doQty;
-            lastProductId[ins.id] = order.productId;
           }
         }
       } else {
@@ -241,7 +261,7 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
         const base = sortedOrders.filter(
           (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
         );
-        const eligible = sortForContinuity(base, ins.id);
+        const eligible = sortByAssignment(base, ins.id);
         for (const order of eligible) {
           if (hoursLeft <= 0.001) break;
           const spd = ins.speedPerProduct[order.productId] || 0;
@@ -251,7 +271,6 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
           schedule[ins.id][dk].push({ orderId:order.id, productId:order.productId, qty:doQty, isActual:false, isPlanned:false });
           remaining[order.id] -= doQty;
           hoursLeft -= doQty / spd;
-          lastProductId[ins.id] = order.productId;
         }
       }
     }
