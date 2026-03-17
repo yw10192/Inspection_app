@@ -795,15 +795,44 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
 
 // ─── 注文・納期設定 ────────────────────────────────────────────────
 function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
-  const [form, setForm] = useState(null);
+  // addForm: 一括追加モード { productId, rows:[{id,deadline,quantity}] }
+  const [addForm,  setAddForm]  = useState(null);
+  // editForm: 1件編集モード
+  const [editForm, setEditForm] = useState(null);
 
-  const startAdd = () => setForm({ id:`O${Date.now()}`, productId:Object.keys(productMap)[0]||"", deadline:today, quantity:100, isNew:true });
-  const startEdit = (o) => setForm({...o, isNew:false});
-  const save = () => {
-    if (!form.productId||!form.deadline||!form.quantity) return;
-    const entry = { id:form.id, productId:form.productId, deadline:form.deadline, quantity:parseInt(form.quantity)||0 };
-    setOrders(prev => form.isNew ? [...prev, entry] : prev.map(o => o.id===form.id ? entry : o));
-    setForm(null);
+  const firstProductId = Object.keys(productMap)[0] || "";
+
+  // ── 追加フォーム ──
+  const openAdd = () => setAddForm({
+    productId: firstProductId,
+    rows: [{ id:`O${Date.now()}`, deadline:today, quantity:100 }],
+  });
+  const addRow = () => setAddForm(f => ({
+    ...f,
+    rows: [...f.rows, { id:`O${Date.now()+Math.random()}`, deadline:today, quantity:100 }],
+  }));
+  const removeRow = (idx) => setAddForm(f => ({ ...f, rows: f.rows.filter((_,i)=>i!==idx) }));
+  const updateRow = (idx, key, val) => setAddForm(f => {
+    const rows = [...f.rows];
+    rows[idx] = { ...rows[idx], [key]: val };
+    return { ...f, rows };
+  });
+  const saveAdd = () => {
+    if (!addForm.productId) return;
+    const valid = addForm.rows.filter(r => r.deadline && parseInt(r.quantity) > 0);
+    if (!valid.length) return;
+    const entries = valid.map(r => ({ id:r.id, productId:addForm.productId, deadline:r.deadline, quantity:parseInt(r.quantity) }));
+    setOrders(prev => [...prev, ...entries]);
+    setAddForm(null);
+  };
+
+  // ── 編集フォーム ──
+  const startEdit = (o) => setEditForm({...o});
+  const saveEdit = () => {
+    if (!editForm.productId||!editForm.deadline||!editForm.quantity) return;
+    const entry = { id:editForm.id, productId:editForm.productId, deadline:editForm.deadline, quantity:parseInt(editForm.quantity)||0 };
+    setOrders(prev => prev.map(o => o.id===entry.id ? entry : o));
+    setEditForm(null);
   };
   const remove = (id) => setOrders(prev => prev.filter(o=>o.id!==id));
 
@@ -811,52 +840,100 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
     <div>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
         <h2 style={{ margin:0, fontSize:18, color:"#f6ad55" }}>📦 注文・納期設定</h2>
-        <button onClick={startAdd} style={S.btnPrimary}>+ 注文追加</button>
+        <button onClick={openAdd} style={S.btnPrimary}>+ 注文追加</button>
       </div>
 
-      {form && (
+      {/* ── 一括追加フォーム ── */}
+      {addForm && (
         <div style={{ ...S.card, border:"1px solid #667eea88", marginBottom:16 }}>
-          <div style={{ fontWeight:700, marginBottom:12, color:"#a78bfa" }}>{form.isNew?"新規注文":"注文編集"}</div>
+          <div style={{ fontWeight:700, marginBottom:12, color:"#a78bfa" }}>新規注文</div>
+
+          {/* 製品選択 */}
+          <label style={{ fontSize:13, display:"block", marginBottom:14 }}>
+            <span style={{ color:"#718096", marginRight:8 }}>製品</span>
+            <select value={addForm.productId} onChange={e=>setAddForm(f=>({...f,productId:e.target.value}))} style={S.input}>
+              {Object.values(productMap).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+
+          {/* 納期・数量の行 */}
+          <div style={{ marginBottom:10 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, marginBottom:6, fontSize:12, color:"#718096", padding:"0 4px" }}>
+              <span>納期</span><span>数量（個）</span><span></span>
+            </div>
+            {addForm.rows.map((row, idx) => (
+              <div key={row.id} style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, marginBottom:6, alignItems:"center" }}>
+                <input type="date" value={row.deadline} onChange={e=>updateRow(idx,"deadline",e.target.value)} style={S.input} />
+                <input type="number" min="1" value={row.quantity} onChange={e=>updateRow(idx,"quantity",e.target.value)} style={S.input} />
+                <button onClick={()=>removeRow(idx)} style={{ ...S.btnDanger, padding:"6px 10px", fontSize:13, visibility:addForm.rows.length>1?"visible":"hidden" }}>✕</button>
+              </div>
+            ))}
+          </div>
+
+          {/* 行追加ボタン */}
+          <button onClick={addRow} style={{ ...S.btnSecondary, fontSize:13, marginBottom:14 }}>+ 納期を追加</button>
+
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={saveAdd} style={S.btnPrimary}>すべて保存</button>
+            <button onClick={()=>setAddForm(null)} style={S.btnSecondary}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 1件編集フォーム ── */}
+      {editForm && (
+        <div style={{ ...S.card, border:"1px solid #f6ad5588", marginBottom:16 }}>
+          <div style={{ fontWeight:700, marginBottom:12, color:"#f6ad55" }}>注文編集</div>
           <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
             <label style={{ fontSize:13 }}>
               <div style={{ color:"#718096", marginBottom:4 }}>製品</div>
-              <select value={form.productId} onChange={e=>setForm({...form,productId:e.target.value})} style={S.input}>
+              <select value={editForm.productId} onChange={e=>setEditForm({...editForm,productId:e.target.value})} style={S.input}>
                 {Object.values(productMap).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </label>
             <label style={{ fontSize:13 }}>
               <div style={{ color:"#718096", marginBottom:4 }}>納期</div>
-              <input type="date" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})} style={S.input} />
+              <input type="date" value={editForm.deadline} onChange={e=>setEditForm({...editForm,deadline:e.target.value})} style={S.input} />
             </label>
             <label style={{ fontSize:13 }}>
               <div style={{ color:"#718096", marginBottom:4 }}>数量（個）</div>
-              <input type="number" min="1" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})} style={{ ...S.input, width:100 }} />
+              <input type="number" min="1" value={editForm.quantity} onChange={e=>setEditForm({...editForm,quantity:e.target.value})} style={{ ...S.input, width:100 }} />
             </label>
-            <button onClick={save} style={S.btnPrimary}>保存</button>
-            <button onClick={()=>setForm(null)} style={S.btnSecondary}>キャンセル</button>
+            <button onClick={saveEdit} style={S.btnPrimary}>保存</button>
+            <button onClick={()=>setEditForm(null)} style={S.btnSecondary}>キャンセル</button>
           </div>
         </div>
       )}
 
-      {[...orders].sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((o) => {
-        const p = productMap[o.productId];
-        const rem = Math.max(0,Math.round(remaining[o.id]??0));
-        const missed = rem>0.5 && o.deadline<today;
-        const atRisk = rem>0.5 && o.deadline>=today;
+      {/* ── 注文一覧（製品ごとにグループ表示） ── */}
+      {Object.values(productMap).map(p => {
+        const pOrders = [...orders].filter(o=>o.productId===p.id).sort((a,b)=>new Date(a.deadline)-new Date(b.deadline));
+        if (!pOrders.length) return null;
         return (
-          <div key={o.id} style={{ ...S.card, border:`1px solid ${missed?"#fc818133":atRisk?"#f6ad5533":"#2d374844"}` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:12, height:12, borderRadius:3, background:p?.color, flexShrink:0 }} />
-              <div style={{ flex:1 }}>
-                <span style={{ fontWeight:700 }}>{p?.name}</span>
-                <span style={{ color:"#718096", fontSize:13, margin:"0 12px" }}>納期: {fmt(o.deadline)} ｜ {o.quantity.toLocaleString()}個</span>
-                <span style={{ fontSize:12, fontWeight:600, color:missed?"#fc8181":atRisk?"#f6ad55":"#68d391" }}>
-                  {missed?`🚨 超過 ${rem.toLocaleString()}個残`:atRisk?`⚠️ ${rem.toLocaleString()}個残`:"✅ 達成可能"}
-                </span>
-              </div>
-              <button onClick={()=>startEdit(o)} style={S.btnSecondary}>編集</button>
-              <button onClick={()=>remove(o.id)} style={S.btnDanger}>削除</button>
+          <div key={p.id} style={{ ...S.card, border:`1px solid ${p.color}33`, marginBottom:12 }}>
+            {/* 製品ヘッダー */}
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+              <div style={{ width:14, height:14, borderRadius:3, background:p.color, flexShrink:0 }} />
+              <span style={{ fontWeight:700, color:p.color }}>{p.name}</span>
+              <span style={{ fontSize:12, color:"#718096" }}>{pOrders.length}件</span>
             </div>
+            {/* 納期行 */}
+            {pOrders.map(o => {
+              const rem = Math.max(0,Math.round(remaining[o.id]??0));
+              const missed = rem>0.5 && o.deadline<today;
+              const atRisk = rem>0.5 && o.deadline>=today;
+              return (
+                <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", borderRadius:6, marginBottom:4, background:"#0f111788" }}>
+                  <span style={{ fontSize:13, color:"#cbd5e0", minWidth:100 }}>📅 {fmt(o.deadline)}</span>
+                  <span style={{ fontSize:13, color:"#e2e8f0", minWidth:90 }}>{o.quantity.toLocaleString()}個</span>
+                  <span style={{ fontSize:12, fontWeight:600, flex:1, color:missed?"#fc8181":atRisk?"#f6ad55":"#68d391" }}>
+                    {missed?`🚨 超過 ${rem.toLocaleString()}個残`:atRisk?`⚠️ ${rem.toLocaleString()}個残`:"✅ 達成可能"}
+                  </span>
+                  <button onClick={()=>startEdit(o)} style={S.btnSecondary}>編集</button>
+                  <button onClick={()=>remove(o.id)} style={S.btnDanger}>削除</button>
+                </div>
+              );
+            })}
           </div>
         );
       })}
