@@ -258,7 +258,22 @@ export default function App() {
   const [orders,     setOrders]     = useLocalStorage("ip_orders", initOrders);
   // actuals: {"I1_2025-01-08": {qty:100, note:"機械トラブル"}}
   const [actuals,    setActuals]    = useLocalStorage("ip_actuals", {});
-  const [today,      setToday]      = useLocalStorage("ip_today", "2025-01-08"); // 運用上の「今日」
+  const [today,      setToday]      = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
+
+  // 毎日0時に基準日を自動更新
+  useEffect(() => {
+    const updateToday = () => {
+      const now = new Date();
+      const todayStr = toKey(now);
+      setToday(todayStr);
+      // 次の0時までのミリ秒を計算してタイマーセット
+      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const msUntilMidnight = tomorrow - now;
+      return setTimeout(updateToday, msUntilMidnight);
+    };
+    const timer = updateToday();
+    return () => clearTimeout(timer);
+  }, []);
   const [activeTab,  setActiveTab]  = useState("gantt");
   const [tooltip,    setTooltip]    = useState(null);
 
@@ -417,10 +432,9 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 const o = orderMap[t.orderId];
                 const dlStr = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
                 return (
-                  <div key={i} style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", alignItems:"center" }}>
-                    <span style={{ fontSize:7, color:"rgba(255,255,255,0.9)", fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", padding:"0 2px", lineHeight:1, textShadow:"0 0 3px rgba(0,0,0,0.8)" }}>
-                      {pName} {dlStr}
-                    </span>
+                  <div key={i} style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px" }}>
+                    <div style={{ fontSize:7, color:"rgba(255,255,255,0.95)", fontWeight:700, lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pName}</div>
+                    <div style={{ fontSize:7, color:"rgba(255,255,255,0.85)", lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{dlStr}</div>
                   </div>
                 );
               })}
@@ -597,7 +611,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                   </div>
                 </div>
                 {/* 実績行 */}
-                <div style={{ display:"flex", background: idx%2===0?"#0d1117":"#0a0d12", borderTop:"1px solid #2d374855" }}>
+                <div className="no-print" style={{ display:"flex", background: idx%2===0?"#0d1117":"#0a0d12", borderTop:"1px solid #2d374855" }}>
                   <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid #2d3748", display:"flex", alignItems:"center" }}>
                     <div style={{ fontSize:10, color:"#68d391", fontWeight:700, background:"#68d39122", borderRadius:4, padding:"2px 6px", marginLeft:"auto" }}>実績</div>
                   </div>
