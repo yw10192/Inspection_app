@@ -866,13 +866,53 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
 
 // ─── 検査員設定 ───────────────────────────────────────────────────
 function InspectorSettings({ inspectors, setInspectors, products }) {
-  const [editId, setEditId] = useState(null);
-  const [form,   setForm]   = useState(null);
+  const [editId,    setEditId]    = useState(null);
+  const [form,      setForm]      = useState(null);
+  const [nameEditId, setNameEditId] = useState(null); // インライン名前編集中のID
+  const [nameInput,  setNameInput]  = useState("");
 
-  const startEdit = (ins) => { setEditId(ins.id); setForm({ ...ins, speedPerProduct:{...ins.speedPerProduct}, holidays:ins.holidays.map(h=>({...h})), canInspectSet:new Set(ins.canInspect) }); };
+  const startEdit = (ins) => {
+    setNameEditId(null);
+    setEditId(ins.id);
+    setForm({ ...ins, speedPerProduct:{...ins.speedPerProduct}, holidays:ins.holidays.map(h=>({...h})), canInspectSet:new Set(ins.canInspect) });
+  };
   const save = () => {
-    setInspectors(prev => prev.map(ins => ins.id!==form.id ? ins : { ...ins, workHours:parseFloat(form.workHours)||ins.workHours, speedPerProduct:{...form.speedPerProduct}, holidays:form.holidays, canInspect:[...form.canInspectSet] }));
+    setInspectors(prev => prev.map(ins => ins.id!==form.id ? ins : {
+      ...ins,
+      name: form.name || ins.name,
+      workHours: parseFloat(form.workHours) || ins.workHours,
+      speedPerProduct: {...form.speedPerProduct},
+      holidays: form.holidays,
+      canInspect: [...form.canInspectSet],
+    }));
     setEditId(null); setForm(null);
+  };
+
+  // ── インライン名前編集 ──
+  const startNameEdit = (ins, e) => {
+    e.stopPropagation();
+    setNameEditId(ins.id);
+    setNameInput(ins.name);
+  };
+  const commitNameEdit = (insId) => {
+    const trimmed = nameInput.trim();
+    if (trimmed) setInspectors(prev => prev.map(ins => ins.id===insId ? {...ins, name:trimmed} : ins));
+    setNameEditId(null);
+  };
+
+  const addInspector = () => {
+    const id = `I${Date.now()}`;
+    const ni = { id, name:"新規検査員", workHours:8, speedPerProduct:{}, canInspect:[], holidays:[] };
+    setInspectors(prev => [...prev, ni]);
+    // すぐ名前編集モードに
+    setNameEditId(id);
+    setNameInput("新規検査員");
+  };
+  const removeInspector = (id) => {
+    if (window.confirm("この検査員を削除しますか？")) {
+      setInspectors(prev => prev.filter(ins => ins.id !== id));
+      if (editId === id) { setEditId(null); setForm(null); }
+    }
   };
   const addHoliday    = () => setForm(f=>({...f, holidays:[...f.holidays,{date:"2025-01-01",half:false}]}));
   const removeHoliday = (i) => setForm(f=>({...f, holidays:f.holidays.filter((_,idx)=>idx!==i)}));
@@ -880,12 +920,19 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
 
   return (
     <div>
-      <h2 style={{ margin:"0 0 16px", fontSize:18, color:"#a78bfa" }}>👷 検査員設定</h2>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
+        <h2 style={{ margin:0, fontSize:18, color:"#a78bfa" }}>👷 検査員設定</h2>
+        <button onClick={addInspector} style={S.btnPrimary}>+ 検査員追加</button>
+      </div>
       {inspectors.map((ins) => (
         <div key={ins.id} style={S.card}>
           {editId===ins.id && form ? (
+            // ── 詳細編集フォーム ──
             <div>
-              <div style={{ fontWeight:700, marginBottom:14, fontSize:15 }}>{ins.name}</div>
+              <label style={{ fontSize:13, display:"block", marginBottom:14 }}>
+                <span style={{ color:"#718096" }}>検査員名　</span>
+                <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...S.input, width:200 }} placeholder="検査員名" />
+              </label>
               <label style={{ fontSize:13, display:"block", marginBottom:12 }}>
                 <span style={{ color:"#718096" }}>1日の労働時間（時間）　</span>
                 <input type="number" min="0.5" max="24" step="0.5" value={form.workHours} onChange={e=>setForm({...form,workHours:e.target.value})} style={{ ...S.input, width:80 }} />
@@ -930,16 +977,43 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
               </div>
             </div>
           ) : (
+            // ── カード表示（名前インライン編集つき） ──
             <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, marginBottom:4 }}>{ins.name}</div>
+                {/* 名前：クリックでインライン編集 */}
+                {nameEditId===ins.id ? (
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+                    <input
+                      autoFocus
+                      value={nameInput}
+                      onChange={e=>setNameInput(e.target.value)}
+                      onBlur={()=>commitNameEdit(ins.id)}
+                      onKeyDown={e=>{ if(e.key==="Enter") commitNameEdit(ins.id); if(e.key==="Escape"){ setNameEditId(null); } }}
+                      style={{ ...S.input, fontSize:15, fontWeight:700, width:200, padding:"4px 8px" }}
+                    />
+                    <button onClick={()=>commitNameEdit(ins.id)} style={{ ...S.btnPrimary, padding:"4px 10px", fontSize:12 }}>✓</button>
+                    <button onClick={()=>setNameEditId(null)} style={{ ...S.btnSecondary, padding:"4px 10px", fontSize:12 }}>✕</button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={e=>startNameEdit(ins, e)}
+                    title="クリックして名前を編集"
+                    style={{ fontWeight:700, marginBottom:4, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 }}
+                  >
+                    {ins.name}
+                    <span style={{ fontSize:11, color:"#4a5568", opacity:0.7 }}>✏️</span>
+                  </div>
+                )}
                 <div style={{ fontSize:12, color:"#718096", marginBottom:6 }}>労働時間: {ins.workHours}h/日</div>
                 <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:6 }}>
                   {ins.canInspect.map(pid=>{ const p=products.find(x=>x.id===pid); const spd=ins.speedPerProduct[pid]; return <span key={pid} style={{ fontSize:11, padding:"2px 7px", borderRadius:4, background:`${p?.color}22`, color:p?.color, border:`1px solid ${p?.color}44` }}>{p?.name}{spd?` ${spd}/h`:""}</span>; })}
                 </div>
                 <div style={{ fontSize:12, color:"#718096" }}>休日: {ins.holidays.length===0?"なし":ins.holidays.map(h=>`${fmt(h.date)}${h.half?"(半)":""}`).join("、")}</div>
               </div>
-              <button onClick={()=>startEdit(ins)} style={S.btnSecondary}>編集</button>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>startEdit(ins)} style={S.btnSecondary}>詳細編集</button>
+                <button onClick={()=>removeInspector(ins.id)} style={S.btnDanger}>削除</button>
+              </div>
             </div>
           )}
         </div>
