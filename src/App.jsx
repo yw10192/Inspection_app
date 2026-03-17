@@ -6,7 +6,7 @@ const printStyle = `
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     body { background: #0f1117 !important; margin: 0; }
     .no-print { display: none !important; }
-    .print-only { display: block !important; }
+    .print-hidden { display: none !important; }
   }
 `;
 
@@ -139,7 +139,9 @@ const initOrders = () => [
 // actuals を考慮した2段階スケジュール:
 //   1. today より前の日は actuals を正とする（実績で consumed を計算）
 //   2. today 以降は残量を再スケジュール
-function generateSchedule(inspectors, orders, range, actuals, today) {
+// orderPriority: { "inspectorId_fromDate": [orderId, ...] }
+// その検査員の fromDate 以降の日で、この順序で割り当てる
+function generateSchedule(inspectors, orders, range, actuals, today, orderPriority = {}) {
   const { start, days } = range;
   const dateKeys = Array.from({ length: days }, (_, i) => toKey(addDays(start, i)));
 
@@ -166,7 +168,21 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
     ins.holidays.forEach((h) => { holidayMap[ins.id][h.date] = h.half ? 0.5 : 0; });
   });
 
-  const sortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+  // デフォルトソート（納期昇順）
+  const defaultSortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+
+  // 検査員×日付に適用する優先順位を解決する関数
+  // その日だけ適用（完全一致のキーがある場合のみ）
+  function resolveOrdersForInsDate(insId, dk) {
+    const key = insId + "_" + dk;
+    const priorityIds = orderPriority[key];
+    if (!priorityIds) return defaultSortedOrders;
+    // priority順に並べ、priorityに含まれないものはデフォルト順で末尾に追加
+    const prioritySet = new Set(priorityIds);
+    const prioritized = priorityIds.map(id => orders.find(o => o.id === id)).filter(Boolean);
+    const rest = defaultSortedOrders.filter(o => !prioritySet.has(o.id));
+    return [...prioritized, ...rest];
+  }
 
   for (const dk of dateKeys) {
     const isPast = dk < today;
@@ -215,7 +231,8 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
       } else {
         // 未来日: 残量を通常スケジュール
         let hoursLeft = availHours;
-        const eligible = sortedOrders.filter(
+        const sortedForIns = resolveOrdersForInsDate(ins.id, dk);
+        const eligible = sortedForIns.filter(
           (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
         );
         for (const order of eligible) {
@@ -257,23 +274,15 @@ export default function App() {
   const [inspectors, setInspectors] = useLocalStorage("ip_inspectors", initInspectors);
   const [orders,     setOrders]     = useLocalStorage("ip_orders", initOrders);
   // actuals: {"I1_2025-01-08": {qty:100, note:"機械トラブル"}}
-  const [actuals,    setActuals]    = useLocalStorage("ip_actuals", {});
-  const [today,      setToday]      = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
+  const [actuals,       setActuals]       = useLocalStorage("ip_actuals", {});
+  // orderPriority: {"I1_2025-01-08": ["O3","O1","O5"]} 検査員×日付の優先順位
+  const [orderPriority, setOrderPriority] = useLocalStorage("ip_orderPriority", {});
+  // inspectorOrder: 検査員の表示順 [id, id, ...] （未設定時はinspectors順）
+  const [inspectorOrder, setInspectorOrder] = useLocalStorage("ip_inspectorOrder", []);
+  const [today, setToday] = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
 
-  // 毎日0時に基準日を自動更新
-  useEffect(() => {
-    const updateToday = () => {
-      const now = new Date();
-      const todayStr = toKey(now);
-      setToday(todayStr);
-      // 次の0時までのミリ秒を計算してタイマーセット
-      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-      const msUntilMidnight = tomorrow - now;
-      return setTimeout(updateToday, msUntilMidnight);
-    };
-    const timer = updateToday();
-    return () => clearTimeout(timer);
-  }, []);
+  // 起動時に当日の日付をセット
+  useEffect(() => { setToday(toKey(new Date())); }, []);
   const [activeTab,  setActiveTab]  = useState("gantt");
   const [tooltip,    setTooltip]    = useState(null);
 
@@ -281,8 +290,8 @@ export default function App() {
 
   const { schedule, remaining, dateKeys } = useMemo(() => {
     const range = calcRange(orders);
-    return generateSchedule(inspectors, orders, range, actuals, today);
-  }, [inspectors, orders, actuals, today]);
+    return generateSchedule(inspectors, orders, range, actuals, today, orderPriority);
+  }, [inspectors, orders, actuals, today, orderPriority]);
 
   // 納期アラート: remaining > 0 の注文で today >= deadline
   const alerts = useMemo(() => orders.filter(o => remaining[o.id] > 0.5 && o.deadline < today)
@@ -346,6 +355,8 @@ export default function App() {
           <GanttView inspectors={inspectors} dateKeys={dateKeys} schedule={schedule}
             orders={orders} productMap={productMap} remaining={remaining}
             actuals={actuals} today={today}
+            orderPriority={orderPriority} setOrderPriority={setOrderPriority}
+            inspectorOrder={inspectorOrder} setInspectorOrder={setInspectorOrder}
             tooltip={tooltip} setTooltip={setTooltip} />
         )}
         {activeTab==="actuals" && (
@@ -375,7 +386,59 @@ export default function App() {
 // ─── ガントチャート ───────────────────────────────────────────────
 const DAY_W = 56;
 
-function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, tooltip, setTooltip }) {
+function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, orderPriority, setOrderPriority, inspectorOrder, setInspectorOrder, tooltip, setTooltip }) {
+  // inspectorOrder に従って検査員を並べる（未設定は元の順）
+  const sortedInspectors = useMemo(() => {
+    if (!inspectorOrder || inspectorOrder.length === 0) return inspectors;
+    const orderMap = Object.fromEntries(inspectorOrder.map((id, i) => [id, i]));
+    return [...inspectors].sort((a, b) => {
+      const ai = orderMap[a.id] ?? inspectors.indexOf(a);
+      const bi = orderMap[b.id] ?? inspectors.indexOf(b);
+      return ai - bi;
+    });
+  }, [inspectors, inspectorOrder]);
+
+  // 検査員行のドラッグ＆ドロップ
+  const [draggingInsId, setDraggingInsId] = useState(null);
+  const handleInsDragStart = (e, insId) => {
+    setDraggingInsId(insId);
+    e.dataTransfer.setData("dragType", "inspector");
+    e.dataTransfer.setData("insId", insId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleInsDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+  const handleInsDrop = (e, targetInsId) => {
+    e.preventDefault();
+    const srcId = e.dataTransfer.getData("insId");
+    if (!srcId || srcId === targetInsId) { setDraggingInsId(null); return; }
+    const base = sortedInspectors.map(i => i.id);
+    const fromIdx = base.indexOf(srcId);
+    const toIdx   = base.indexOf(targetInsId);
+    if (fromIdx === -1 || toIdx === -1) { setDraggingInsId(null); return; }
+    const newOrder = [...base];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, srcId);
+    setInspectorOrder(newOrder);
+    setDraggingInsId(null);
+  };
+  const [printFrom, setPrintFrom] = useState(dateKeys[0] || "");
+  const [printTo,   setPrintTo]   = useState(dateKeys[dateKeys.length-1] || "");
+  const [showPrintRange, setShowPrintRange] = useState(false);
+
+  // 印刷範囲でフィルタしたdateKeys
+  const printDateKeys = useMemo(() => {
+    if (!printFrom || !printTo) return dateKeys;
+    return dateKeys.filter(dk => dk >= printFrom && dk <= printTo);
+  }, [dateKeys, printFrom, printTo]);
+
+  const handlePrint = () => {
+    // 印刷範囲をCSSカスタムプロパティで制御するためdatasetに設定
+    document.body.dataset.printFrom = printFrom;
+    document.body.dataset.printTo   = printTo;
+    window.print();
+    delete document.body.dataset.printFrom;
+    delete document.body.dataset.printTo;
+  };
   const orderMap = useMemo(() => { const m={}; orders.forEach(o=>m[o.id]=o); return m; }, [orders]);
   const deadlineByDate = useMemo(() => {
     const m={};
@@ -392,8 +455,43 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
     const tasks = schedule[ins.id]?.[dk] || [];
     const totalQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
 
+    const outOfPrintRange = dk < printFrom || dk > printTo;
+
+    // ドラッグ＆ドロップハンドラ（バー内の製品順序変更）
+    const handleDragStart = (e, orderId) => {
+      e.stopPropagation();
+      e.dataTransfer.setData("orderId", orderId);
+      e.dataTransfer.setData("insId", ins.id);
+      e.dataTransfer.setData("fromDate", dk);
+    };
+    const handleDragOver = (e, orderId) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const handleDrop = (e, targetOrderId) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedId = e.dataTransfer.getData("orderId");
+      const insId     = e.dataTransfer.getData("insId");
+      const fromDate  = e.dataTransfer.getData("fromDate");
+      if (draggedId === targetOrderId || insId !== ins.id) return;
+
+      // 現在のtasks順からorderId列を取得し並び替え
+      const currentIds = tasks.map(t => t.orderId);
+      const fromIdx = currentIds.indexOf(draggedId);
+      const toIdx   = currentIds.indexOf(targetOrderId);
+      if (fromIdx === -1 || toIdx === -1) return;
+      const newIds = [...currentIds];
+      newIds.splice(fromIdx, 1);
+      newIds.splice(toIdx, 0, draggedId);
+
+      // その日だけの優先順位として保存（キー = insId_date）
+      const key = insId + "_" + fromDate;
+      setOrderPriority(prev => ({ ...prev, [key]: newIds }));
+    };
+
     return (
-      <div style={{
+      <div className={outOfPrintRange ? "print-hidden" : ""} style={{
         width:DAY_W, minWidth:DAY_W, height:36, borderLeft:"1px solid #2d374822",
         position:"relative", overflow:"hidden", display:"flex", flexDirection:"column",
         background: isFullHoliday?"#200f0f": isHalfHoliday?"#1a1a0f": isToday?"#0e2330":"transparent",
@@ -432,7 +530,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 const o = orderMap[t.orderId];
                 const dlStr = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
                 return (
-                  <div key={i} style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px" }}>
+                  <div key={i}
+                    draggable
+                    onDragStart={e => handleDragStart(e, t.orderId)}
+                    onDragOver={e => handleDragOver(e, t.orderId)}
+                    onDrop={e => handleDrop(e, t.orderId)}
+                    style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px", cursor:"grab" }}>
                     <div style={{ fontSize:7, color:"rgba(255,255,255,0.95)", fontWeight:700, lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pName}</div>
                     <div style={{ fontSize:7, color:"rgba(255,255,255,0.85)", lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{dlStr}</div>
                   </div>
@@ -462,8 +565,9 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
     const isOver      = hasActual && actual.qty > plannedQty * 1.001;
     const rate = hasActual && plannedQty > 0 ? Math.round((actual.qty/plannedQty)*100) : null;
 
+    const outOfPrintRange = dk < printFrom || dk > printTo;
     return (
-      <div style={{
+      <div className={outOfPrintRange ? "print-hidden" : ""} style={{
         width:DAY_W, minWidth:DAY_W, height:36, borderLeft:"1px solid #2d374822",
         position:"relative", overflow:"hidden", display:"flex", flexDirection:"column",
         background: isFullHoliday?"#200f0f": !isPast && !isToday?"#181818":
@@ -530,9 +634,32 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
   return (
     <div>
-      {/* 印刷ボタン */}
-      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }} className="no-print">
-        <button onClick={() => window.print()} style={{ background:"linear-gradient(135deg,#48bb78,#276749)", border:"none", borderRadius:7, color:"#fff", padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>🖨️ 印刷</button>
+      {/* 印刷コントロール */}
+      <div className="no-print" style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+        <button
+          onClick={() => setShowPrintRange(v => !v)}
+          style={{ background:"#1e2535", border:"1px solid #4a5568", borderRadius:7, color:"#a0aec0", padding:"7px 14px", cursor:"pointer", fontSize:13 }}
+        >🖨️ 印刷範囲設定 {showPrintRange ? "▲" : "▼"}</button>
+        {showPrintRange && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, background:"#1a1f2e", border:"1px solid #2d3748", borderRadius:8, padding:"8px 14px", flexWrap:"wrap" }}>
+            <span style={{ fontSize:13, color:"#718096" }}>印刷範囲：</span>
+            <input type="date" value={printFrom} onChange={e => setPrintFrom(e.target.value)}
+              style={{ ...S.inputDate, width:150 }} />
+            <span style={{ color:"#718096" }}>〜</span>
+            <input type="date" value={printTo} onChange={e => setPrintTo(e.target.value)}
+              style={{ ...S.inputDate, width:150 }} />
+            <button onClick={handlePrint}
+              style={{ background:"linear-gradient(135deg,#48bb78,#276749)", border:"none", borderRadius:7, color:"#fff", padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>
+              🖨️ 印刷
+            </button>
+          </div>
+        )}
+        {!showPrintRange && (
+          <button onClick={handlePrint}
+            style={{ background:"linear-gradient(135deg,#48bb78,#276749)", border:"none", borderRadius:7, color:"#fff", padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>
+            🖨️ 印刷
+          </button>
+        )}
       </div>
       {/* 凡例 */}
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
@@ -561,6 +688,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           <div style={{ width:2, height:14, background:"#67e8f9" }} />
           <span style={{ fontSize:12, color:"#cbd5e0" }}>今日</span>
         </div>
+        <div style={{ marginLeft:"auto" }} className="no-print">
+          <button
+            onClick={() => { if(window.confirm("検査順序のカスタマイズをすべてリセットしますか？")) { setOrderPriority({}); setInspectorOrder([]); } }}
+            style={{ background:"transparent", border:"1px solid #fc818144", borderRadius:6, color:"#fc8181", padding:"4px 12px", cursor:"pointer", fontSize:12 }}
+          >↺ 順序リセット</button>
+        </div>
       </div>
 
       <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #2d3748" }}>
@@ -574,8 +707,9 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 const isWE = [0,6].includes(dt.getDay());
                 const isToday = dk === today;
                 const hasDL = !!deadlineByDate[dk];
+                const outOfPrintRange = dk < printFrom || dk > printTo;
                 return (
-                  <div key={dk} style={{ width:DAY_W, minWidth:DAY_W, textAlign:"center", fontSize:10, padding:"5px 0 3px", borderLeft:"1px solid #2d374833", position:"relative",
+                  <div key={dk} className={outOfPrintRange ? "print-hidden" : ""} style={{ width:DAY_W, minWidth:DAY_W, textAlign:"center", fontSize:10, padding:"5px 0 3px", borderLeft:"1px solid #2d374833", position:"relative",
                     color: isToday ? "#67e8f9" : isWE ? "#fc8181" : "#a0aec0",
                     background: isToday ? "#0e2330" : "transparent",
                   }}>
@@ -590,7 +724,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           </div>
 
           {/* 検査員行（予定行＋実績行の2段） */}
-          {inspectors.map((ins, idx) => {
+          {sortedInspectors.map((ins, idx) => {
             const holidaySet={};
             ins.holidays.forEach(h=>{ holidaySet[h.date]=h.half?0.5:0; });
             const bg = idx%2===0 ? "#111827" : "#0f1117";
@@ -598,8 +732,18 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             return (
               <div key={ins.id} style={{ borderBottom:"2px solid #2d3748" }}>
                 {/* 予定行 */}
-                <div style={{ display:"flex", background:bg }}>
+                <div style={{ display:"flex", background:bg, opacity: draggingInsId === ins.id ? 0.4 : 1, transition:"opacity 0.15s" }}
+                  onDragOver={handleInsDragOver}
+                  onDrop={e => handleInsDrop(e, ins.id)}
+                >
                   <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid #2d3748", display:"flex", alignItems:"center" }}>
+                    {/* ドラッグハンドル */}
+                    <div
+                      draggable
+                      onDragStart={e => handleInsDragStart(e, ins.id)}
+                      style={{ cursor:"grab", color:"#4a5568", fontSize:14, marginRight:6, userSelect:"none", padding:"0 2px" }}
+                      title="ドラッグして検査員の順序を変更"
+                    >⠿</div>
                     <div>
                       <div style={{ fontSize:13, fontWeight:600 }}>{ins.name}</div>
                       <div style={{ fontSize:10, color:"#718096" }}>{ins.workHours}h/日</div>
@@ -629,8 +773,9 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             <div style={{ display:"flex" }}>
               {dateKeys.map((dk) => {
                 const dls = deadlineByDate[dk]||[];
+                const outOfPrintRange2 = dk < printFrom || dk > printTo;
                 return (
-                  <div key={dk} style={{ width:DAY_W, minWidth:DAY_W, minHeight:36, borderLeft:"1px solid #2d374822", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"2px 0",
+                  <div key={dk} className={outOfPrintRange2 ? "print-hidden" : ""} style={{ width:DAY_W, minWidth:DAY_W, minHeight:36, borderLeft:"1px solid #2d374822", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"2px 0",
                     background: dk===today?"#0e2330":"transparent" }}>
                     {dls.map((o,i) => {
                       const rem = remaining[o.id]??0;
