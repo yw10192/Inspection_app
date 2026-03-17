@@ -200,8 +200,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, orderPriori
         if (!actual || actual.qty <= 0) {
           // 実績なし → 予定通り処理したとして計画値で消化
           let hoursLeft = availHours;
-          const sortedForIns0 = resolveOrdersForInsDate(ins.id, dk);
-          const eligible = sortedForIns0.filter(
+          const eligible = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
           for (const order of eligible) {
@@ -217,8 +216,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, orderPriori
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
           let qtyLeft = actual.qty;
-          const sortedForIns1 = resolveOrdersForInsDate(ins.id, dk);
-          const eligible = sortedForIns1.filter(
+          const eligible = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
           for (const order of eligible) {
@@ -411,8 +409,6 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
   const handleInsDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
   const handleInsDrop = (e, targetInsId) => {
     e.preventDefault();
-    // 製品バーのドラッグは無視
-    if (e.dataTransfer.getData("barOrderId")) { setDraggingInsId(null); return; }
     const srcId = e.dataTransfer.getData("insId");
     if (!srcId || srcId === targetInsId) { setDraggingInsId(null); return; }
     const base = sortedInspectors.map(i => i.id);
@@ -461,69 +457,36 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
     const outOfPrintRange = dk < printFrom || dk > printTo;
 
-    // セル内の製品順序変更
-    // バーは縦積みで高さが小さいため、セル全体のonDropで座標から挿入位置を計算する
-    const [localDragging, setLocalDragging] = useState(null);
-
-    const handleBarDragStart = (e, orderId) => {
+    // ドラッグ＆ドロップハンドラ（バー内の製品順序変更）
+    const handleDragStart = (e, orderId) => {
       e.stopPropagation();
-      e.dataTransfer.setData("barOrderId", orderId);
-      e.dataTransfer.setData("barInsId", ins.id);
-      e.dataTransfer.setData("barDate", dk);
-      e.dataTransfer.effectAllowed = "move";
-      setLocalDragging(orderId);
+      e.dataTransfer.setData("orderId", orderId);
+      e.dataTransfer.setData("insId", ins.id);
+      e.dataTransfer.setData("fromDate", dk);
     };
-    const handleBarDragEnd = () => setLocalDragging(null);
-
-    // セル全体でドロップを受け取り、Y座標から挿入位置を決定
-    const handleCellDragOver = (e) => {
-      // barOrderId が設定されているドラッグのみ受け付ける
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-    };
-    const handleCellDrop = (e) => {
+    const handleDragOver = (e, orderId) => {
       e.preventDefault();
       e.stopPropagation();
-      const draggedId = e.dataTransfer.getData("barOrderId");
-      const barInsId  = e.dataTransfer.getData("barInsId");
-      const barDate   = e.dataTransfer.getData("barDate");
-      setLocalDragging(null);
-      if (!draggedId || barInsId !== ins.id || barDate !== dk) return;
+    };
+    const handleDrop = (e, targetOrderId) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedId = e.dataTransfer.getData("orderId");
+      const insId     = e.dataTransfer.getData("insId");
+      const fromDate  = e.dataTransfer.getData("fromDate");
+      if (draggedId === targetOrderId || insId !== ins.id) return;
 
-      // セル内のY座標比率から挿入位置を決定
-      const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = (e.clientY - rect.top) / rect.height;  // 0.0 〜 1.0
-
+      // 現在のtasks順からorderId列を取得し並び替え
       const currentIds = tasks.map(t => t.orderId);
       const fromIdx = currentIds.indexOf(draggedId);
-      if (fromIdx === -1) return;
-
-      // 各バーの高さ比率を累積してY比率と比較
-      const capH = ins.workHours; // 簡易計算
-      let cumulative = 0;
-      let toIdx = currentIds.length - 1; // デフォルト：末尾
-      for (let i = 0; i < tasks.length; i++) {
-        const spd = ins.speedPerProduct[tasks[i].productId] || 1;
-        const barRatio = Math.min(tasks[i].qty / spd / capH, 1.0);
-        if (ratio < cumulative + barRatio / 2) {
-          toIdx = i;
-          break;
-        }
-        cumulative += barRatio;
-        if (ratio < cumulative) {
-          toIdx = i;
-          break;
-        }
-      }
-
-      if (fromIdx === toIdx) return;
+      const toIdx   = currentIds.indexOf(targetOrderId);
+      if (fromIdx === -1 || toIdx === -1) return;
       const newIds = [...currentIds];
       newIds.splice(fromIdx, 1);
-      // fromIdx < toIdx の場合、splice後にインデックスがずれるので調整不要
-      // (splice(fromIdx,1) でtoIdx側がずれることはない)
       newIds.splice(toIdx, 0, draggedId);
 
-      const key = ins.id + "_" + dk;
+      // その日だけの優先順位として保存（キー = insId_date）
+      const key = insId + "_" + fromDate;
       setOrderPriority(prev => ({ ...prev, [key]: newIds }));
     };
 
@@ -555,8 +518,6 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           )});
         }}
         onMouseLeave={() => setTooltip(null)}
-        onDragOver={tasks.length > 1 ? handleCellDragOver : undefined}
-        onDrop={tasks.length > 1 ? handleCellDrop : undefined}
       >
         {isFullHoliday
           ? <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, opacity:0.4 }}>🏖</div>
@@ -571,19 +532,10 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 return (
                   <div key={i}
                     draggable
-                    onDragStart={e => handleBarDragStart(e, t.orderId)}
-                    onDragEnd={handleBarDragEnd}
-                    style={{
-                      width:"100%", height:`${pct}%`, minHeight:8,
-                      background: productMap[t.productId]?.color||"#aaa",
-                      opacity: localDragging === t.orderId ? 0.4 : 0.85,
-                      position:"relative", overflow:"hidden",
-                      display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px",
-                      cursor:"grab",
-                      outline: localDragging && localDragging !== t.orderId ? "2px dashed rgba(255,255,255,0.6)" : "none",
-                      boxSizing:"border-box",
-                      transition:"opacity 0.1s",
-                    }}>
+                    onDragStart={e => handleDragStart(e, t.orderId)}
+                    onDragOver={e => handleDragOver(e, t.orderId)}
+                    onDrop={e => handleDrop(e, t.orderId)}
+                    style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px", cursor:"grab" }}>
                     <div style={{ fontSize:7, color:"rgba(255,255,255,0.95)", fontWeight:700, lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pName}</div>
                     <div style={{ fontSize:7, color:"rgba(255,255,255,0.85)", lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{dlStr}</div>
                   </div>
