@@ -1,5 +1,15 @@
 import { useState, useMemo, useEffect } from "react";
 
+// ─── 印刷用スタイル注入 ──────────────────────────────────────────
+const printStyle = `
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { background: #0f1117 !important; margin: 0; }
+    .no-print { display: none !important; }
+    .print-only { display: block !important; }
+  }
+`;
+
 // ─── localStorage永続化フック ─────────────────────────────────────
 function useLocalStorage(key, initialValue) {
   const [state, setState] = useState(() => {
@@ -147,6 +157,12 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
   const holidayMap = {};
   inspectors.forEach((ins) => {
     holidayMap[ins.id] = {};
+    // 土曜(6)・日曜(0)を自動で全休に設定
+    dateKeys.forEach((dk) => {
+      const dow = new Date(dk + "T00:00:00").getDay();
+      if (dow === 0 || dow === 6) holidayMap[ins.id][dk] = 0;
+    });
+    // 個別休日設定で上書き（土日に半休設定も可能）
     ins.holidays.forEach((h) => { holidayMap[ins.id][h.date] = h.half ? 0.5 : 0; });
   });
 
@@ -231,6 +247,12 @@ const S = {
 
 // ─── App ──────────────────────────────────────────────────────────
 export default function App() {
+  useEffect(() => {
+    const el = document.createElement("style");
+    el.textContent = printStyle;
+    document.head.appendChild(el);
+    return () => document.head.removeChild(el);
+  }, []);
   const [products,   setProducts]   = useLocalStorage("ip_products", initProducts);
   const [inspectors, setInspectors] = useLocalStorage("ip_inspectors", initInspectors);
   const [orders,     setOrders]     = useLocalStorage("ip_orders", initOrders);
@@ -262,7 +284,7 @@ export default function App() {
   return (
     <div style={{ fontFamily:"'Noto Sans JP','Segoe UI',sans-serif", background:"#0f1117", minHeight:"100vh", color:"#e2e8f0" }}>
       {/* Header */}
-      <div style={{ background:"linear-gradient(135deg,#1a1f2e,#1e2640)", borderBottom:"1px solid #2d3748", padding:"14px 24px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", boxShadow:"0 4px 20px rgba(0,0,0,0.4)" }}>
+      <div className="no-print" style={{ background:"linear-gradient(135deg,#1a1f2e,#1e2640)", borderBottom:"1px solid #2d3748", padding:"14px 24px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", boxShadow:"0 4px 20px rgba(0,0,0,0.4)" }}>
         <div style={{ width:40, height:40, borderRadius:10, background:"linear-gradient(135deg,#667eea,#764ba2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🔍</div>
         <div>
           <div style={{ fontSize:20, fontWeight:700 }}>検査計画システム</div>
@@ -294,7 +316,7 @@ export default function App() {
 
       {/* 納期超過アラートバナー */}
       {alerts.length > 0 && (
-        <div style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+        <div className="no-print" style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
           <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>⚠️ 納期超過 {alerts.length}件</span>
           {alerts.map(({order,rem}) => (
             <span key={order.id} style={{ background:"#fc818122", border:"1px solid #fc818144", borderRadius:6, padding:"3px 10px", fontSize:12, color:"#fc8181" }}>
@@ -336,7 +358,7 @@ export default function App() {
 }
 
 // ─── ガントチャート ───────────────────────────────────────────────
-const DAY_W = 36;
+const DAY_W = 56;
 
 function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, tooltip, setTooltip }) {
   const orderMap = useMemo(() => { const m={}; orders.forEach(o=>m[o.id]=o); return m; }, [orders]);
@@ -391,9 +413,17 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 const capH = isHalfHoliday ? ins.workHours*0.5 : ins.workHours;
                 const spd = ins.speedPerProduct[t.productId]||1;
                 const pct = Math.min((t.qty/spd/capH)*100, 100);
-                return <div key={i} style={{ width:"100%", height:`${pct}%`, minHeight:2, background:productMap[t.productId]?.color||"#aaa", opacity:0.85 }} />;
+                const pName = productMap[t.productId]?.name || "";
+                const o = orderMap[t.orderId];
+                const dlStr = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
+                return (
+                  <div key={i} style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", alignItems:"center" }}>
+                    <span style={{ fontSize:7, color:"rgba(255,255,255,0.9)", fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", padding:"0 2px", lineHeight:1, textShadow:"0 0 3px rgba(0,0,0,0.8)" }}>
+                      {pName} {dlStr}
+                    </span>
+                  </div>
+                );
               })}
-              {totalQty>0 && <div style={{ position:"absolute", bottom:1, right:2, fontSize:7, color:"rgba(255,255,255,0.6)" }}>{totalQty}</div>}
               {isToday && <div style={{ position:"absolute", top:0, left:0, bottom:0, width:2, background:"#67e8f9", opacity:0.8 }} />}
             </>
         }
@@ -486,6 +516,10 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
   return (
     <div>
+      {/* 印刷ボタン */}
+      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }} className="no-print">
+        <button onClick={() => window.print()} style={{ background:"linear-gradient(135deg,#48bb78,#276749)", border:"none", borderRadius:7, color:"#fff", padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>🖨️ 印刷</button>
+      </div>
       {/* 凡例 */}
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
         {Object.values(productMap).map((p) => (
