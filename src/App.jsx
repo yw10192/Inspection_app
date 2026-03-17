@@ -139,7 +139,9 @@ const initOrders = () => [
 // actuals を考慮した2段階スケジュール:
 //   1. today より前の日は actuals を正とする（実績で consumed を計算）
 //   2. today 以降は残量を再スケジュール
-function generateSchedule(inspectors, orders, range, actuals, today) {
+// orderPriority: { "inspectorId_fromDate": [orderId, ...] }
+// その検査員の fromDate 以降の日で、この順序で割り当てる
+function generateSchedule(inspectors, orders, range, actuals, today, orderPriority = {}) {
   const { start, days } = range;
   const dateKeys = Array.from({ length: days }, (_, i) => toKey(addDays(start, i)));
 
@@ -166,7 +168,21 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
     ins.holidays.forEach((h) => { holidayMap[ins.id][h.date] = h.half ? 0.5 : 0; });
   });
 
-  const sortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+  // デフォルトソート（納期昇順）
+  const defaultSortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+
+  // 検査員×日付に適用する優先順位を解決する関数
+  // その日だけ適用（完全一致のキーがある場合のみ）
+  function resolveOrdersForInsDate(insId, dk) {
+    const key = insId + "_" + dk;
+    const priorityIds = orderPriority[key];
+    if (!priorityIds) return defaultSortedOrders;
+    // priority順に並べ、priorityに含まれないものはデフォルト順で末尾に追加
+    const prioritySet = new Set(priorityIds);
+    const prioritized = priorityIds.map(id => orders.find(o => o.id === id)).filter(Boolean);
+    const rest = defaultSortedOrders.filter(o => !prioritySet.has(o.id));
+    return [...prioritized, ...rest];
+  }
 
   for (const dk of dateKeys) {
     const isPast = dk < today;
@@ -184,7 +200,8 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
         if (!actual || actual.qty <= 0) {
           // 実績なし → 予定通り処理したとして計画値で消化
           let hoursLeft = availHours;
-          const eligible = sortedOrders.filter(
+          const sortedForIns0 = resolveOrdersForInsDate(ins.id, dk);
+          const eligible = sortedForIns0.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
           for (const order of eligible) {
@@ -200,7 +217,8 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
           let qtyLeft = actual.qty;
-          const eligible = sortedOrders.filter(
+          const sortedForIns1 = resolveOrdersForInsDate(ins.id, dk);
+          const eligible = sortedForIns1.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
           for (const order of eligible) {
@@ -215,7 +233,8 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
       } else {
         // 未来日: 残量を通常スケジュール
         let hoursLeft = availHours;
-        const eligible = sortedOrders.filter(
+        const sortedForIns = resolveOrdersForInsDate(ins.id, dk);
+        const eligible = sortedForIns.filter(
           (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
         );
         for (const order of eligible) {
@@ -257,7 +276,11 @@ export default function App() {
   const [inspectors, setInspectors] = useLocalStorage("ip_inspectors", initInspectors);
   const [orders,     setOrders]     = useLocalStorage("ip_orders", initOrders);
   // actuals: {"I1_2025-01-08": {qty:100, note:"機械トラブル"}}
-  const [actuals,    setActuals]    = useLocalStorage("ip_actuals", {});
+  const [actuals,       setActuals]       = useLocalStorage("ip_actuals", {});
+  // orderPriority: {"I1_2025-01-08": ["O3","O1","O5"]} 検査員×日付の優先順位
+  const [orderPriority, setOrderPriority] = useLocalStorage("ip_orderPriority", {});
+  // inspectorOrder: 検査員の表示順 [id, id, ...] （未設定時はinspectors順）
+  const [inspectorOrder, setInspectorOrder] = useLocalStorage("ip_inspectorOrder", []);
   const [today, setToday] = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
 
   // 起動時に当日の日付をセット
@@ -269,8 +292,8 @@ export default function App() {
 
   const { schedule, remaining, dateKeys } = useMemo(() => {
     const range = calcRange(orders);
-    return generateSchedule(inspectors, orders, range, actuals, today);
-  }, [inspectors, orders, actuals, today]);
+    return generateSchedule(inspectors, orders, range, actuals, today, orderPriority);
+  }, [inspectors, orders, actuals, today, orderPriority]);
 
   // 納期アラート: remaining > 0 の注文で today >= deadline
   const alerts = useMemo(() => orders.filter(o => remaining[o.id] > 0.5 && o.deadline < today)
@@ -334,6 +357,8 @@ export default function App() {
           <GanttView inspectors={inspectors} dateKeys={dateKeys} schedule={schedule}
             orders={orders} productMap={productMap} remaining={remaining}
             actuals={actuals} today={today}
+            orderPriority={orderPriority} setOrderPriority={setOrderPriority}
+            inspectorOrder={inspectorOrder} setInspectorOrder={setInspectorOrder}
             tooltip={tooltip} setTooltip={setTooltip} />
         )}
         {activeTab==="actuals" && (
@@ -363,7 +388,43 @@ export default function App() {
 // ─── ガントチャート ───────────────────────────────────────────────
 const DAY_W = 56;
 
-function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, tooltip, setTooltip }) {
+function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, orderPriority, setOrderPriority, inspectorOrder, setInspectorOrder, tooltip, setTooltip }) {
+  // inspectorOrder に従って検査員を並べる（未設定は元の順）
+  const sortedInspectors = useMemo(() => {
+    if (!inspectorOrder || inspectorOrder.length === 0) return inspectors;
+    const orderMap = Object.fromEntries(inspectorOrder.map((id, i) => [id, i]));
+    return [...inspectors].sort((a, b) => {
+      const ai = orderMap[a.id] ?? inspectors.indexOf(a);
+      const bi = orderMap[b.id] ?? inspectors.indexOf(b);
+      return ai - bi;
+    });
+  }, [inspectors, inspectorOrder]);
+
+  // 検査員行のドラッグ＆ドロップ
+  const [draggingInsId, setDraggingInsId] = useState(null);
+  const handleInsDragStart = (e, insId) => {
+    setDraggingInsId(insId);
+    e.dataTransfer.setData("dragType", "inspector");
+    e.dataTransfer.setData("insId", insId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleInsDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+  const handleInsDrop = (e, targetInsId) => {
+    e.preventDefault();
+    // 製品バーのドラッグは無視
+    if (e.dataTransfer.getData("barOrderId")) { setDraggingInsId(null); return; }
+    const srcId = e.dataTransfer.getData("insId");
+    if (!srcId || srcId === targetInsId) { setDraggingInsId(null); return; }
+    const base = sortedInspectors.map(i => i.id);
+    const fromIdx = base.indexOf(srcId);
+    const toIdx   = base.indexOf(targetInsId);
+    if (fromIdx === -1 || toIdx === -1) { setDraggingInsId(null); return; }
+    const newOrder = [...base];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, srcId);
+    setInspectorOrder(newOrder);
+    setDraggingInsId(null);
+  };
   const [printFrom, setPrintFrom] = useState(dateKeys[0] || "");
   const [printTo,   setPrintTo]   = useState(dateKeys[dateKeys.length-1] || "");
   const [showPrintRange, setShowPrintRange] = useState(false);
@@ -399,6 +460,73 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
     const totalQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
 
     const outOfPrintRange = dk < printFrom || dk > printTo;
+
+    // セル内の製品順序変更
+    // バーは縦積みで高さが小さいため、セル全体のonDropで座標から挿入位置を計算する
+    const [localDragging, setLocalDragging] = useState(null);
+
+    const handleBarDragStart = (e, orderId) => {
+      e.stopPropagation();
+      e.dataTransfer.setData("barOrderId", orderId);
+      e.dataTransfer.setData("barInsId", ins.id);
+      e.dataTransfer.setData("barDate", dk);
+      e.dataTransfer.effectAllowed = "move";
+      setLocalDragging(orderId);
+    };
+    const handleBarDragEnd = () => setLocalDragging(null);
+
+    // セル全体でドロップを受け取り、Y座標から挿入位置を決定
+    const handleCellDragOver = (e) => {
+      // barOrderId が設定されているドラッグのみ受け付ける
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    };
+    const handleCellDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedId = e.dataTransfer.getData("barOrderId");
+      const barInsId  = e.dataTransfer.getData("barInsId");
+      const barDate   = e.dataTransfer.getData("barDate");
+      setLocalDragging(null);
+      if (!draggedId || barInsId !== ins.id || barDate !== dk) return;
+
+      // セル内のY座標比率から挿入位置を決定
+      const rect = e.currentTarget.getBoundingClientRect();
+      const ratio = (e.clientY - rect.top) / rect.height;  // 0.0 〜 1.0
+
+      const currentIds = tasks.map(t => t.orderId);
+      const fromIdx = currentIds.indexOf(draggedId);
+      if (fromIdx === -1) return;
+
+      // 各バーの高さ比率を累積してY比率と比較
+      const capH = ins.workHours; // 簡易計算
+      let cumulative = 0;
+      let toIdx = currentIds.length - 1; // デフォルト：末尾
+      for (let i = 0; i < tasks.length; i++) {
+        const spd = ins.speedPerProduct[tasks[i].productId] || 1;
+        const barRatio = Math.min(tasks[i].qty / spd / capH, 1.0);
+        if (ratio < cumulative + barRatio / 2) {
+          toIdx = i;
+          break;
+        }
+        cumulative += barRatio;
+        if (ratio < cumulative) {
+          toIdx = i;
+          break;
+        }
+      }
+
+      if (fromIdx === toIdx) return;
+      const newIds = [...currentIds];
+      newIds.splice(fromIdx, 1);
+      // fromIdx < toIdx の場合、splice後にインデックスがずれるので調整不要
+      // (splice(fromIdx,1) でtoIdx側がずれることはない)
+      newIds.splice(toIdx, 0, draggedId);
+
+      const key = ins.id + "_" + dk;
+      setOrderPriority(prev => ({ ...prev, [key]: newIds }));
+    };
+
     return (
       <div className={outOfPrintRange ? "print-hidden" : ""} style={{
         width:DAY_W, minWidth:DAY_W, height:36, borderLeft:"1px solid #2d374822",
@@ -427,6 +555,8 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           )});
         }}
         onMouseLeave={() => setTooltip(null)}
+        onDragOver={tasks.length > 1 ? handleCellDragOver : undefined}
+        onDrop={tasks.length > 1 ? handleCellDrop : undefined}
       >
         {isFullHoliday
           ? <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, opacity:0.4 }}>🏖</div>
@@ -439,7 +569,21 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 const o = orderMap[t.orderId];
                 const dlStr = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
                 return (
-                  <div key={i} style={{ width:"100%", height:`${pct}%`, minHeight:3, background:productMap[t.productId]?.color||"#aaa", opacity:0.85, position:"relative", overflow:"hidden", display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px" }}>
+                  <div key={i}
+                    draggable
+                    onDragStart={e => handleBarDragStart(e, t.orderId)}
+                    onDragEnd={handleBarDragEnd}
+                    style={{
+                      width:"100%", height:`${pct}%`, minHeight:8,
+                      background: productMap[t.productId]?.color||"#aaa",
+                      opacity: localDragging === t.orderId ? 0.4 : 0.85,
+                      position:"relative", overflow:"hidden",
+                      display:"flex", flexDirection:"column", justifyContent:"center", padding:"0 2px",
+                      cursor:"grab",
+                      outline: localDragging && localDragging !== t.orderId ? "2px dashed rgba(255,255,255,0.6)" : "none",
+                      boxSizing:"border-box",
+                      transition:"opacity 0.1s",
+                    }}>
                     <div style={{ fontSize:7, color:"rgba(255,255,255,0.95)", fontWeight:700, lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pName}</div>
                     <div style={{ fontSize:7, color:"rgba(255,255,255,0.85)", lineHeight:1.2, textShadow:"0 0 3px rgba(0,0,0,0.9)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{dlStr}</div>
                   </div>
@@ -592,6 +736,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           <div style={{ width:2, height:14, background:"#67e8f9" }} />
           <span style={{ fontSize:12, color:"#cbd5e0" }}>今日</span>
         </div>
+        <div style={{ marginLeft:"auto" }} className="no-print">
+          <button
+            onClick={() => { if(window.confirm("検査順序のカスタマイズをすべてリセットしますか？")) { setOrderPriority({}); setInspectorOrder([]); } }}
+            style={{ background:"transparent", border:"1px solid #fc818144", borderRadius:6, color:"#fc8181", padding:"4px 12px", cursor:"pointer", fontSize:12 }}
+          >↺ 順序リセット</button>
+        </div>
       </div>
 
       <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #2d3748" }}>
@@ -622,7 +772,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           </div>
 
           {/* 検査員行（予定行＋実績行の2段） */}
-          {inspectors.map((ins, idx) => {
+          {sortedInspectors.map((ins, idx) => {
             const holidaySet={};
             ins.holidays.forEach(h=>{ holidaySet[h.date]=h.half?0.5:0; });
             const bg = idx%2===0 ? "#111827" : "#0f1117";
@@ -630,8 +780,18 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             return (
               <div key={ins.id} style={{ borderBottom:"2px solid #2d3748" }}>
                 {/* 予定行 */}
-                <div style={{ display:"flex", background:bg }}>
+                <div style={{ display:"flex", background:bg, opacity: draggingInsId === ins.id ? 0.4 : 1, transition:"opacity 0.15s" }}
+                  onDragOver={handleInsDragOver}
+                  onDrop={e => handleInsDrop(e, ins.id)}
+                >
                   <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid #2d3748", display:"flex", alignItems:"center" }}>
+                    {/* ドラッグハンドル */}
+                    <div
+                      draggable
+                      onDragStart={e => handleInsDragStart(e, ins.id)}
+                      style={{ cursor:"grab", color:"#4a5568", fontSize:14, marginRight:6, userSelect:"none", padding:"0 2px" }}
+                      title="ドラッグして検査員の順序を変更"
+                    >⠿</div>
                     <div>
                       <div style={{ fontSize:13, fontWeight:600 }}>{ins.name}</div>
                       <div style={{ fontSize:10, color:"#718096" }}>{ins.workHours}h/日</div>
