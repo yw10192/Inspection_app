@@ -221,7 +221,8 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
 
 // ─── スタイル ─────────────────────────────────────────────────────
 const S = {
-  input:        { background:"#0f1117", border:"1px solid #4a5568", borderRadius:6, color:"#e2e8f0", padding:"6px 10px", fontSize:13, outline:"none" },
+  input:        { background:"#1e2535", border:"1px solid #4a5568", borderRadius:6, color:"#e2e8f0", padding:"6px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" },
+  inputDate:    { background:"#1e2535", border:"1px solid #4a5568", borderRadius:6, color:"#e2e8f0", padding:"6px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box", colorScheme:"dark" },
   btnPrimary:   { background:"linear-gradient(135deg,#667eea,#764ba2)", border:"none", borderRadius:7, color:"#fff", padding:"7px 16px", cursor:"pointer", fontSize:13, fontWeight:600 },
   btnSecondary: { background:"transparent", border:"1px solid #4a5568", borderRadius:7, color:"#a0aec0", padding:"7px 14px", cursor:"pointer", fontSize:13 },
   btnDanger:    { background:"transparent", border:"1px solid #fc818144", borderRadius:7, color:"#fc8181", padding:"7px 14px", cursor:"pointer", fontSize:13 },
@@ -271,7 +272,7 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"center", gap:8, background:"#0f1117", borderRadius:8, padding:"6px 12px", border:"1px solid #4a5568" }}>
           <span style={{ fontSize:12, color:"#718096" }}>📅 基準日（今日）</span>
           <input type="date" value={today} onChange={e=>setToday(e.target.value)}
-            style={{ ...S.input, padding:"3px 8px", fontSize:12, border:"none", background:"transparent" }} />
+            style={{ ...S.inputDate, padding:"3px 8px", fontSize:12, border:"none", background:"transparent", width:"auto" }} />
         </div>
         <div style={{ flex:1 }} />
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
@@ -663,7 +664,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
         <h2 style={{ margin:0, fontSize:18, color:"#68d391" }}>✏️ 実績入力</h2>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           <span style={{ fontSize:13, color:"#718096" }}>日付選択:</span>
-          <select value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} style={{ ...S.input, width:160 }}>
+          <select value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} style={{ ...S.inputDate, width:160 }}>
             {pastDates.map(dk=><option key={dk} value={dk}>{fmt(dk)}{dk===today?" (今日)":""}</option>)}
           </select>
         </div>
@@ -849,23 +850,23 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
           <div style={{ fontWeight:700, marginBottom:12, color:"#a78bfa" }}>新規注文</div>
 
           {/* 製品選択 */}
-          <label style={{ fontSize:13, display:"block", marginBottom:14 }}>
+          <label style={{ fontSize:13, display:"block", marginBottom:14, maxWidth:320 }}>
             <span style={{ color:"#718096", marginRight:8 }}>製品</span>
-            <select value={addForm.productId} onChange={e=>setAddForm(f=>({...f,productId:e.target.value}))} style={S.input}>
+            <select value={addForm.productId} onChange={e=>setAddForm(f=>({...f,productId:e.target.value}))} style={{ ...S.input, width:"auto", minWidth:160 }}>
               {Object.values(productMap).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
 
           {/* 納期・数量の行 */}
-          <div style={{ marginBottom:10 }}>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, marginBottom:6, fontSize:12, color:"#718096", padding:"0 4px" }}>
+          <div style={{ marginBottom:10, maxWidth:480 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"180px 130px 36px", gap:8, marginBottom:6, fontSize:12, color:"#718096", padding:"0 4px" }}>
               <span>納期</span><span>数量（個）</span><span></span>
             </div>
             {addForm.rows.map((row, idx) => (
-              <div key={row.id} style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, marginBottom:6, alignItems:"center" }}>
-                <input type="date" value={row.deadline} onChange={e=>updateRow(idx,"deadline",e.target.value)} style={S.input} />
+              <div key={row.id} style={{ display:"grid", gridTemplateColumns:"180px 130px 36px", gap:8, marginBottom:6, alignItems:"center" }}>
+                <input type="date" value={row.deadline} onChange={e=>updateRow(idx,"deadline",e.target.value)} style={S.inputDate} />
                 <input type="number" min="1" value={row.quantity} onChange={e=>updateRow(idx,"quantity",e.target.value)} style={S.input} />
-                <button onClick={()=>removeRow(idx)} style={{ ...S.btnDanger, padding:"6px 10px", fontSize:13, visibility:addForm.rows.length>1?"visible":"hidden" }}>✕</button>
+                <button onClick={()=>removeRow(idx)} style={{ ...S.btnDanger, padding:"6px 8px", fontSize:13, visibility:addForm.rows.length>1?"visible":"hidden" }}>✕</button>
               </div>
             ))}
           </div>
@@ -893,7 +894,7 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
             </label>
             <label style={{ fontSize:13 }}>
               <div style={{ color:"#718096", marginBottom:4 }}>納期</div>
-              <input type="date" value={editForm.deadline} onChange={e=>setEditForm({...editForm,deadline:e.target.value})} style={S.input} />
+              <input type="date" value={editForm.deadline} onChange={e=>setEditForm({...editForm,deadline:e.target.value})} style={S.inputDate} />
             </label>
             <label style={{ fontSize:13 }}>
               <div style={{ color:"#718096", marginBottom:4 }}>数量（個）</div>
@@ -1038,7 +1039,7 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
                 </div>
                 {form.holidays.map((h,i) => (
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                    <input type="date" value={h.date} onChange={e=>updateHoliday(i,"date",e.target.value)} style={{ ...S.input, width:160 }} />
+                    <input type="date" value={h.date} onChange={e=>updateHoliday(i,"date",e.target.value)} style={{ ...S.inputDate, width:160 }} />
                     <label style={{ display:"flex", alignItems:"center", gap:4, fontSize:13, cursor:"pointer" }}>
                       <input type="checkbox" checked={h.half} onChange={e=>updateHoliday(i,"half",e.target.checked)} />
                       <span style={{ color:h.half?"#f6ad55":"#718096" }}>半日休み</span>
@@ -1120,7 +1121,7 @@ function ProductSettings({ products, setProducts }) {
             {editId===p.id && form ? (
               <div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end", marginBottom:12 }}>
-                  <label style={{ fontSize:13 }}><div style={{ color:"#718096", marginBottom:4 }}>製品名</div><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...S.input, width:160 }} /></label>
+                  <label style={{ fontSize:13 }}><div style={{ color:"#718096", marginBottom:4 }}>製品名</div><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...S.inputDate, width:160 }} /></label>
                   <label style={{ fontSize:13 }}><div style={{ color:"#718096", marginBottom:4 }}>カラー</div><input type="color" value={form.color} onChange={e=>setForm({...form,color:e.target.value})} style={{ width:48, height:34, borderRadius:6, border:"1px solid #4a5568", background:"none", cursor:"pointer" }} /></label>
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
