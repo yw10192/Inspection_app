@@ -200,7 +200,8 @@ function generateSchedule(inspectors, orders, range, actuals, today, orderPriori
         if (!actual || actual.qty <= 0) {
           // 実績なし → 予定通り処理したとして計画値で消化
           let hoursLeft = availHours;
-          const eligible = sortedOrders.filter(
+          const sortedForIns0 = resolveOrdersForInsDate(ins.id, dk);
+          const eligible = sortedForIns0.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
           for (const order of eligible) {
@@ -216,7 +217,8 @@ function generateSchedule(inspectors, orders, range, actuals, today, orderPriori
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
           let qtyLeft = actual.qty;
-          const eligible = sortedOrders.filter(
+          const sortedForIns1 = resolveOrdersForInsDate(ins.id, dk);
+          const eligible = sortedForIns1.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
           for (const order of eligible) {
