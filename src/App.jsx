@@ -166,7 +166,26 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
     ins.holidays.forEach((h) => { holidayMap[ins.id][h.date] = h.half ? 0.5 : 0; });
   });
 
+  // 納期昇順のベースソート
   const sortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+
+  // 検査員ごとに「直前に検査していた製品ID」を追跡
+  const lastProductId = {};
+  inspectors.forEach(ins => { lastProductId[ins.id] = null; });
+
+  // 同じ製品を連続して検査するよう並び替える関数
+  // ルール: 前日と同じ製品が残っていれば最優先、次に納期順
+  function sortForContinuity(eligible, insId) {
+    const last = lastProductId[insId];
+    if (!last) return eligible;
+    return [...eligible].sort((a, b) => {
+      const aIsLast = a.productId === last ? 0 : 1;
+      const bIsLast = b.productId === last ? 0 : 1;
+      if (aIsLast !== bIsLast) return aIsLast - bIsLast;
+      // 同じ優先度なら納期順
+      return new Date(a.deadline) - new Date(b.deadline);
+    });
+  }
 
   for (const dk of dateKeys) {
     const isPast = dk < today;
@@ -184,9 +203,10 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
         if (!actual || actual.qty <= 0) {
           // 実績なし → 予定通り処理したとして計画値で消化
           let hoursLeft = availHours;
-          const eligible = sortedOrders.filter(
+          const base = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
+          const eligible = sortForContinuity(base, ins.id);
           for (const order of eligible) {
             if (hoursLeft <= 0.001) break;
             const spd = ins.speedPerProduct[order.productId] || 0;
@@ -196,13 +216,15 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
             schedule[ins.id][dk].push({ orderId:order.id, productId:order.productId, qty:doQty, isActual:false, isPlanned:true });
             remaining[order.id] -= doQty;
             hoursLeft -= doQty / spd;
+            lastProductId[ins.id] = order.productId;
           }
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
           let qtyLeft = actual.qty;
-          const eligible = sortedOrders.filter(
+          const base = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
+          const eligible = sortForContinuity(base, ins.id);
           for (const order of eligible) {
             if (qtyLeft <= 0) break;
             const doQty = Math.min(qtyLeft, remaining[order.id]);
@@ -210,14 +232,16 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
             schedule[ins.id][dk].push({ orderId:order.id, productId:order.productId, qty:doQty, isActual:true, isPlanned:false });
             remaining[order.id] -= doQty;
             qtyLeft -= doQty;
+            lastProductId[ins.id] = order.productId;
           }
         }
       } else {
-        // 未来日: 残量を通常スケジュール
+        // 未来日: 同じ製品を連続させながらスケジュール
         let hoursLeft = availHours;
-        const eligible = sortedOrders.filter(
+        const base = sortedOrders.filter(
           (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
         );
+        const eligible = sortForContinuity(base, ins.id);
         for (const order of eligible) {
           if (hoursLeft <= 0.001) break;
           const spd = ins.speedPerProduct[order.productId] || 0;
@@ -227,6 +251,7 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
           schedule[ins.id][dk].push({ orderId:order.id, productId:order.productId, qty:doQty, isActual:false, isPlanned:false });
           remaining[order.id] -= doQty;
           hoursLeft -= doQty / spd;
+          lastProductId[ins.id] = order.productId;
         }
       }
     }
