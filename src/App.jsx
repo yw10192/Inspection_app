@@ -940,67 +940,51 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             );
           })}
 
-          {/* 納期行 */}
-          <div style={{ display:"flex", background:"#1a1f2e", borderTop:"1px solid #2d3748" }}>
-            <div style={{ width:190, minWidth:190, padding:"8px 12px", borderRight:"1px solid #2d3748", fontSize:12, fontWeight:700, color:"#f6ad55" }}>📦 納期</div>
-            <div style={{ display:"flex" }}>
-              {dateKeys.map((dk) => {
-                const dls = deadlineByDate[dk]||[];
-                const outOfPrintRange2 = dk < printFrom || dk > printTo;
-                return (
-                  <div key={dk} className={outOfPrintRange2 ? "print-hidden" : ""} style={{ width:DAY_W, minWidth:DAY_W, minHeight:36, borderLeft:"1px solid #2d374822", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"2px 0",
-                    background: dk===today?"#0e2330":"transparent" }}>
-                    {dls.map((o,i) => {
-                      const isRed    = (overdueQty[o.id]||0) > 0.5;
-                      const isYellow = !isRed && (bufferQty[o.id]||0) > 0.5;
-                      const dotColor = isRed ? "#fc8181" : isYellow ? "#f6ad55" : "#68d391";
-                      const rem = remaining[o.id]??0;
-                      const label = isRed
-                        ? `🚨 ${productMap[o.productId]?.name} 納期超え${Math.round(overdueQty[o.id]||0)}個`
-                        : isYellow
-                        ? `⚠️ ${productMap[o.productId]?.name} 3日前超え${Math.round(bufferQty[o.id]||0)}個`
-                        : `✅ ${productMap[o.productId]?.name}`;
-                      return <div key={i} style={{ width:8, height:8, borderRadius:"50%",
-                        background: dotColor,
-                        border:`1.5px solid ${productMap[o.productId]?.color||"#fff"}` }}
-                        title={label} />;
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* サマリーカード（画面のみ） */}
-      <div className="no-print" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, marginTop:20 }}>
-        {[...orders].sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((o) => {
-          const p = productMap[o.productId];
-          const rem = Math.max(0, Math.round(remaining[o.id]??0));
-          const done = o.quantity - rem;
-          const pct = Math.round((done/o.quantity)*100);
-          const missed = rem > 0.5 && o.deadline < today;
-          const atRisk = rem > 0.5 && o.deadline >= today;
-          return (
-            <div key={o.id} style={{ background:"#1a1f2e", borderRadius:10, padding:"12px 14px",
-              border:`1px solid ${missed?"#fc818144": atRisk?"#f6ad5544":"#2d374844"}` }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                <div style={{ width:10, height:10, borderRadius:2, background:p?.color }} />
-                <span style={{ fontSize:13, fontWeight:700 }}>{p?.name}</span>
-                <span style={{ marginLeft:"auto", fontSize:11, color:"#718096" }}>〆{fmt(o.deadline)}</span>
+      {/* 進捗カード（画面のみ） */}
+      <div className="no-print" style={{ marginTop:20 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa", marginBottom:10 }}>📊 検査進捗</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10 }}>
+          {[...orders].sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((o) => {
+            const p = productMap[o.productId];
+            // 実績: actuals の products[orderId] を直接集計
+            const actualDone = Object.entries(actuals).reduce((sum, [key, val]) => {
+              if (!val.products) return sum + (parseInt(val.qty)||0); // 旧形式互換
+              return sum + (parseInt(val.products[o.id])||0);
+            }, 0);
+            const actPct = o.quantity > 0 ? Math.min(Math.round(actualDone / o.quantity * 100), 100) : 0;
+            const isRed    = (overdueQty[o.id]||0) > 0.5;
+            const isYellow = !isRed && (bufferQty[o.id]||0) > 0.5;
+            const borderColor = isRed?"#fc818144": isYellow?"#f6ad5544":"#2d374844";
+            const statusColor = isRed?"#fc8181": isYellow?"#f6ad55":"#68d391";
+            const statusIcon  = isRed?"🚨" : isYellow?"⚠️" : "✅";
+            const statusText  = isRed?"納期超え割当あり" : isYellow?"3日前超え割当あり" : "スケジュール順調";
+            return (
+              <div key={o.id} style={{ background:"#1a1f2e", borderRadius:10, padding:"12px 14px", border:`1px solid ${borderColor}` }}>
+                {/* ヘッダー */}
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                  <div style={{ width:10, height:10, borderRadius:2, background:p?.color, flexShrink:0 }} />
+                  <span style={{ fontSize:13, fontWeight:700, flex:1 }}>{p?.name}</span>
+                  <span style={{ fontSize:11, color:"#718096" }}>〆{fmt(o.deadline)}</span>
+                </div>
+                {/* 実績 / 注文数 と % */}
+                <div style={{ display:"flex", alignItems:"baseline", gap:6, marginBottom:6 }}>
+                  <span style={{ fontSize:22, fontWeight:900, color:"#e2e8f0" }}>{actualDone.toLocaleString()}</span>
+                  <span style={{ fontSize:13, color:"#718096" }}>/ {o.quantity.toLocaleString()}個</span>
+                  <span style={{ fontSize:18, fontWeight:700, color: actPct>=100?"#68d391":"#a78bfa", marginLeft:"auto" }}>{actPct}%</span>
+                </div>
+                {/* プログレスバー */}
+                <div style={{ background:"#2d3748", borderRadius:4, height:6, overflow:"hidden", marginBottom:6 }}>
+                  <div style={{ width:`${actPct}%`, height:"100%", background: actPct>=100?"#68d391":p?.color, transition:"width 0.3s" }} />
+                </div>
+                {/* スケジュールステータス */}
+                <div style={{ fontSize:11, fontWeight:600, color:statusColor }}>{statusIcon} {statusText}</div>
               </div>
-              <div style={{ fontSize:12, color:"#a0aec0", marginBottom:6 }}>{Math.round(done).toLocaleString()} / {o.quantity.toLocaleString()} 個</div>
-              <div style={{ background:"#2d3748", borderRadius:4, height:6, overflow:"hidden" }}>
-                <div style={{ width:`${Math.min(pct,100)}%`, height:"100%", background:missed?"#fc8181":atRisk?"#f6ad55":p?.color }} />
-              </div>
-              <div style={{ fontSize:11, marginTop:4, fontWeight:600,
-                color: missed?"#fc8181": atRisk?"#f6ad55":"#68d391" }}>
-                {missed?`🚨 納期超過 ${rem.toLocaleString()}個残`: atRisk?`⚠️ 要注意 ${rem.toLocaleString()}個残`:`✅ 達成 ${pct}%`}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {/* ═══ 印刷専用カレンダービュー（白背景・A4横） ═══ */}
