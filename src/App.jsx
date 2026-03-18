@@ -132,10 +132,17 @@ const initOrders = () => [
   { id:"O15", productId:"P5",  deadline:"2025-01-28", quantity:800 },
 ];
 
-// actuals: { "inspectorId_dateKey": { qty: number, note: string } }
-// ※ 製品ごとではなく、その日の検査員の合計実績として記録
+// actuals: { "inspectorId_dateKey": { products: {orderId: qty}, note: string } }
+// products が存在しない場合は旧形式 qty (後方互換)
 
 // ─── スケジューラ ─────────────────────────────────────────────────
+// actuals の合計数量を取得（旧形式 qty / 新形式 products 両対応）
+function getActualTotal(actual) {
+  if (!actual) return 0;
+  if (actual.products) return Object.values(actual.products).reduce((s,v)=>s+(parseInt(v)||0),0);
+  return parseInt(actual.qty) || 0;
+}
+
 // actuals を考慮した2段階スケジュール:
 //   1. today より前の日は actuals を正とする（実績で consumed を計算）
 //   2. today 以降は残量を再スケジュール
@@ -222,7 +229,7 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
         // 過去日: 実績がある場合は実績を使って残量を消化
         const aKey = `${ins.id}_${dk}`;
         const actual = actuals[aKey];
-        if (!actual || actual.qty <= 0) {
+        if (!actual || getActualTotal(actual) <= 0) {
           // 実績なし → 予定通り処理したとして計画値で消化
           let hoursLeft = availHours;
           const base = sortedOrders.filter(
@@ -241,7 +248,7 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
           }
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
-          let qtyLeft = actual.qty;
+          let qtyLeft = getActualTotal(actual);
           const base = sortedOrders.filter(
             (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
           );
@@ -512,10 +519,11 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
     const plannedQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
     const aKey = `${ins.id}_${dk}`;
     const actual = actuals[aKey];
-    const hasActual = (isPast || isToday) && actual && actual.qty > 0;
-    const isShortfall = hasActual && actual.qty < plannedQty * 0.99;
-    const isOver      = hasActual && actual.qty > plannedQty * 1.001;
-    const rate = hasActual && plannedQty > 0 ? Math.round((actual.qty/plannedQty)*100) : null;
+    const hasActual = (isPast || isToday) && actual && getActualTotal(actual) > 0;
+    const actTotalQty = getActualTotal(actual);
+    const isShortfall = hasActual && actTotalQty < plannedQty * 0.99;
+    const isOver      = hasActual && actTotalQty > plannedQty * 1.001;
+    const rate = hasActual && plannedQty > 0 ? Math.round((actTotalQty/plannedQty)*100) : null;
 
     const outOfPrintRange = dk < printFrom || dk > printTo;
     return (
@@ -537,9 +545,9 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
               {hasActual ? (
                 <>
                   <div style={{ color:isShortfall?"#fc8181":isOver?"#68d391":"#e2e8f0", fontWeight:600 }}>
-                    実績: {actual.qty}個 {rate!==null?`(${rate}%)`:""} {isShortfall?"⚠️ 未達":isOver?"✅ 超過":"✅"}
+                    実績: {actTotalQty}個 {rate!==null?`(${rate}%)`:""} {isShortfall?"⚠️ 未達":isOver?"✅ 超過":"✅"}
                   </div>
-                  {isShortfall && <div style={{ color:"#fc8181", fontSize:11 }}>不足: {plannedQty-actual.qty}個 → 翌日へ繰越</div>}
+                  {isShortfall && <div style={{ color:"#fc8181", fontSize:11 }}>不足: {plannedQty-actTotalQty}個 → 翌日へ繰越</div>}
                   {actual.note && <div style={{ color:"#f6ad55", fontSize:11, marginTop:3 }}>📝 {actual.note}</div>}
                 </>
               ) : (
@@ -559,7 +567,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             {/* 実績バー：製品色で塗る（按分） */}
             {tasks.map((t,i) => {
               const share = plannedQty > 0 ? t.qty / plannedQty : 0;
-              const actQty = actual.qty * share;
+              const actQty = actTotalQty * share;
               const capH = isHalfHoliday ? ins.workHours*0.5 : ins.workHours;
               const spd = ins.speedPerProduct[t.productId]||1;
               const pct = Math.min((actQty/spd/capH)*100, 100);
@@ -768,21 +776,28 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actuals, setActuals, today }) {
   const [selectedDate, setSelectedDate] = useState(today);
 
-  // 選択日の予定サマリー（検査員ごと）
   const daySchedule = useMemo(() => {
     return inspectors.map((ins) => {
       const tasks = schedule[ins.id]?.[selectedDate] || [];
       const plannedQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
       const aKey = `${ins.id}_${selectedDate}`;
-      const actual = actuals[aKey] || { qty:"", note:"" };
+      const actual = actuals[aKey] || { products:{}, note:"" };
       return { ins, tasks, plannedQty, aKey, actual };
-    }).filter(({ plannedQty, actual }) => plannedQty > 0 || (actual.qty !== "" && actual.qty > 0));
+    }).filter(({ plannedQty, actual }) => plannedQty > 0 || getActualTotal(actual) > 0);
   }, [inspectors, schedule, selectedDate, actuals]);
 
-  const updateActual = (aKey, field, value) => {
+  // 製品別の実績を更新
+  const updateProductQty = (aKey, orderId, value) => {
+    setActuals(prev => {
+      const cur = prev[aKey] || { products:{}, note:"" };
+      const products = { ...(cur.products||{}), [orderId]: value===""?"":parseInt(value)||0 };
+      return { ...prev, [aKey]: { ...cur, products } };
+    });
+  };
+  const updateNote = (aKey, value) => {
     setActuals(prev => ({
       ...prev,
-      [aKey]: { ...(prev[aKey]||{qty:"",note:""}), [field]: value }
+      [aKey]: { ...(prev[aKey]||{products:{},note:""}), note: value }
     }));
   };
 
@@ -808,71 +823,85 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
       ) : (
         <div>
           {daySchedule.map(({ ins, tasks, plannedQty, aKey, actual }) => {
-            const inputQty = actual.qty === "" ? "" : actual.qty;
-            const numQty = parseInt(inputQty)||0;
-            const isShort = inputQty !== "" && numQty < plannedQty * 0.99;
-            const isOver  = inputQty !== "" && numQty > plannedQty * 1.001;
-            const rate    = inputQty !== "" && plannedQty > 0 ? Math.round((numQty/plannedQty)*100) : null;
+            const products = actual.products || {};
+            const totalActual = getActualTotal(actual);
+            const hasAnyInput = Object.values(products).some(v => v !== "" && v > 0);
+            const isShort = hasAnyInput && totalActual < plannedQty * 0.99;
+            const isOver  = hasAnyInput && totalActual > plannedQty * 1.001;
+            const rate    = hasAnyInput && plannedQty > 0 ? Math.round((totalActual/plannedQty)*100) : null;
+            const multiProduct = tasks.length > 1;
 
             return (
               <div key={ins.id} style={{ ...S.card, border:`1px solid ${isShort?"#fc818144":isOver?"#68d39144":"#2d374844"}` }}>
-                <div style={{ display:"flex", alignItems:"flex-start", gap:16, flexWrap:"wrap" }}>
-                  <div style={{ minWidth:180 }}>
-                    <div style={{ fontWeight:700, fontSize:14, marginBottom:4 }}>{ins.name}</div>
-                    <div style={{ fontSize:12, color:"#718096", marginBottom:6 }}>予定: {plannedQty.toLocaleString()}個</div>
-                    {/* 予定内訳 */}
-                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                      {tasks.map((t,i) => {
-                        const p = productMap[t.productId];
-                        return (
-                          <span key={i} style={{ fontSize:11, padding:"2px 6px", borderRadius:4, background:`${p?.color}22`, color:p?.color, border:`1px solid ${p?.color}44` }}>
-                            {p?.name} {Math.round(t.qty)}個
-                          </span>
-                        );
-                      })}
+                {/* 検査員名・合計 */}
+                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, flexWrap:"wrap" }}>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{ins.name}</div>
+                  <div style={{ fontSize:12, color:"#718096" }}>予定合計: {plannedQty.toLocaleString()}個</div>
+                  {rate !== null && (
+                    <div style={{ fontSize:18, fontWeight:700, color: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", marginLeft:"auto" }}>
+                      {rate}%
+                      {isShort && <span style={{ fontSize:12, marginLeft:6 }}>⚠️ 未達</span>}
+                      {isOver  && <span style={{ fontSize:12, marginLeft:6 }}>✅ 超過</span>}
                     </div>
-                  </div>
-
-                  <div style={{ flex:1, minWidth:200 }}>
-                    <div style={{ display:"flex", gap:12, alignItems:"flex-end", flexWrap:"wrap", marginBottom:8 }}>
-                      <label style={{ fontSize:13 }}>
-                        <div style={{ color:"#718096", marginBottom:4 }}>実績数量（個）</div>
-                        <input type="number" min="0" placeholder={plannedQty}
-                          value={inputQty}
-                          onChange={e=>updateActual(aKey,"qty",e.target.value===""?"":parseInt(e.target.value)||0)}
-                          style={{ ...S.input, width:120, borderColor: isShort?"#fc8181": isOver?"#68d391":"#4a5568" }} />
-                      </label>
-                      {rate !== null && (
-                        <div style={{ fontSize:22, fontWeight:700, color: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", paddingBottom:4 }}>
-                          {rate}%
-                          {isShort && <span style={{ fontSize:12, marginLeft:6 }}>⚠️ 未達</span>}
-                          {isOver  && <span style={{ fontSize:12, marginLeft:6 }}>✅ 超過達成</span>}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 達成度バー */}
-                    {rate !== null && (
-                      <div style={{ background:"#2d3748", borderRadius:4, height:8, overflow:"hidden", marginBottom:8, maxWidth:300 }}>
-                        <div style={{ width:`${Math.min(rate,100)}%`, height:"100%", background: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", transition:"width 0.3s" }} />
-                      </div>
-                    )}
-
-                    <label style={{ fontSize:13, display:"block" }}>
-                      <div style={{ color:"#718096", marginBottom:4 }}>遅延原因・メモ{isShort?" *":"（任意）"}</div>
-                      <input type="text" placeholder="例: 機械トラブル、材料不足、作業者体調不良..."
-                        value={actual.note||""}
-                        onChange={e=>updateActual(aKey,"note",e.target.value)}
-                        style={{ ...S.input, width:"100%", maxWidth:400 }} />
-                    </label>
-
-                    {isShort && (
-                      <div style={{ marginTop:8, padding:"6px 10px", background:"#2d1515", borderRadius:6, fontSize:12, color:"#fc8181", border:"1px solid #fc818133" }}>
-                        📋 残 {(plannedQty-numQty).toLocaleString()}個 → 翌日以降に自動再スケジュール
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
+
+                {/* 製品別入力（複数製品 or 1製品） */}
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:10 }}>
+                  {tasks.map((t) => {
+                    const p = productMap[t.productId];
+                    const planned = Math.round(t.qty);
+                    const val = products[t.orderId];
+                    const numVal = parseInt(val)||0;
+                    const pShort = val !== undefined && val !== "" && numVal < planned * 0.99;
+                    const pOver  = val !== undefined && val !== "" && numVal > planned * 1.001;
+                    return (
+                      <div key={t.orderId} style={{
+                        background:"#0f1117", border:`1px solid ${pShort?"#fc8181":pOver?"#68d391":p?.color+"44"}`,
+                        borderRadius:8, padding:"10px 12px", minWidth:160,
+                      }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                          <div style={{ width:10, height:10, borderRadius:3, background:p?.color, flexShrink:0 }} />
+                          <span style={{ fontSize:13, fontWeight:700, color:p?.color }}>{p?.name}</span>
+                          <span style={{ fontSize:11, color:"#718096", marginLeft:"auto" }}>予定 {planned.toLocaleString()}個</span>
+                        </div>
+                        <input type="number" min="0" placeholder={planned}
+                          value={val ?? ""}
+                          onChange={e => updateProductQty(aKey, t.orderId, e.target.value)}
+                          style={{ ...S.input, width:"100%",
+                            borderColor: pShort?"#fc8181":pOver?"#68d391":p?.color+"66" }} />
+                        {val !== undefined && val !== "" && (
+                          <div style={{ fontSize:11, marginTop:4, color: pShort?"#fc8181":pOver?"#68d391":"#a78bfa" }}>
+                            {Math.round(numVal/planned*100)}%
+                            {pShort && ` (-${(planned-numVal).toLocaleString()}個)`}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 合計達成度バー */}
+                {rate !== null && (
+                  <div style={{ background:"#2d3748", borderRadius:4, height:6, overflow:"hidden", marginBottom:10, maxWidth:400 }}>
+                    <div style={{ width:`${Math.min(rate,100)}%`, height:"100%", background: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", transition:"width 0.3s" }} />
+                  </div>
+                )}
+
+                {/* メモ */}
+                <label style={{ fontSize:13, display:"block" }}>
+                  <div style={{ color:"#718096", marginBottom:4 }}>遅延原因・メモ{isShort?" *":"（任意）"}</div>
+                  <input type="text" placeholder="例: 機械トラブル、材料不足..."
+                    value={actual.note||""}
+                    onChange={e=>updateNote(aKey, e.target.value)}
+                    style={{ ...S.input, width:"100%", maxWidth:400 }} />
+                </label>
+
+                {isShort && (
+                  <div style={{ marginTop:8, padding:"6px 10px", background:"#2d1515", borderRadius:6, fontSize:12, color:"#fc8181", border:"1px solid #fc818133" }}>
+                    📋 残 {(plannedQty-totalActual).toLocaleString()}個 → 翌日以降に自動再スケジュール
+                  </div>
+                )}
               </div>
             );
           })}
@@ -887,29 +916,44 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
             <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12 }}>
               <thead>
                 <tr style={{ background:"#1a1f2e" }}>
-                  {["日付","検査員","実績","メモ"].map(h=>(
+                  {["日付","検査員","製品別実績","合計","達成率","メモ"].map(h=>(
                     <th key={h} style={{ padding:"8px 12px", color:"#718096", textAlign:"left", borderBottom:"1px solid #2d3748" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(actuals)
-                  .filter(([,v])=>v.qty!=="")
-                  .sort(([a],[b])=>a.localeCompare(b))
+                  .filter(([,v]) => getActualTotal(v) > 0)
+                  .sort(([a],[b]) => a.localeCompare(b))
                   .map(([key,val]) => {
                     const [iid, dk] = key.split("_");
                     const ins = inspectors.find(x=>x.id===iid);
                     const plannedTasks = schedule[iid]?.[dk]||[];
                     const planned = Math.round(plannedTasks.reduce((s,t)=>s+t.qty,0));
-                    const rate = planned>0 ? Math.round((val.qty/planned)*100) : null;
+                    const total = getActualTotal(val);
+                    const rate = planned>0 ? Math.round((total/planned)*100) : null;
                     const isShort = rate!==null && rate < 99;
+                    const prods = val.products || {};
                     return (
-                      <tr key={key} style={{ borderBottom:"1px solid #2d374833", background:isShort?"#1a10100":"transparent" }}>
+                      <tr key={key} style={{ borderBottom:"1px solid #2d374833" }}>
                         <td style={{ padding:"6px 12px", color:"#a0aec0" }}>{fmt(dk)}</td>
                         <td style={{ padding:"6px 12px" }}>{ins?.name||iid}</td>
+                        <td style={{ padding:"6px 12px" }}>
+                          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                            {plannedTasks.map(t => {
+                              const p = productMap[t.productId];
+                              const actQty = parseInt(prods[t.orderId])||0;
+                              return (
+                                <span key={t.orderId} style={{ fontSize:11, padding:"1px 6px", borderRadius:4, background:`${p?.color}22`, color:p?.color, border:`1px solid ${p?.color}44` }}>
+                                  {p?.name} {actQty.toLocaleString()}個
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td style={{ padding:"6px 12px", fontWeight:600 }}>{total.toLocaleString()}個 / {planned.toLocaleString()}個</td>
                         <td style={{ padding:"6px 12px", color: isShort?"#fc8181":"#68d391", fontWeight:600 }}>
-                          {val.qty}個 / {planned}個
-                          {rate!==null && <span style={{ fontSize:11, marginLeft:6, color:"#718096" }}>({rate}%)</span>}
+                          {rate!==null ? `${rate}%` : "—"}
                         </td>
                         <td style={{ padding:"6px 12px", color:"#f6ad55" }}>{val.note||"—"}</td>
                       </tr>
