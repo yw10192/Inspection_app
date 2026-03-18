@@ -357,12 +357,13 @@ export default function App() {
   }, [inspectors, orders, actuals, today, manualAssignments]);
 
   // 納期アラート:
-  // ・納期超過: 納期 < 今日 かつ 残量あり
-  // ・バッファ切れ: 納期3日前 < 今日 かつ 残量あり（間に合わない可能性）
+  // ・納期超過: 納期 < 今日 かつ 残量あり（すでに遅れている）
+  // ・間に合わない: スケジュール計算後も残量あり（納期前でも）
   const alerts = useMemo(() => orders
-    .filter(o => remaining[o.id] > 0.5 && toKey(addDays(o.deadline, -3)) < today)
+    .filter(o => remaining[o.id] > 0.5)
     .map(o => {
-      const overDeadline = o.deadline < today;
+      const overDeadline = o.deadline < today;   // 納期が今日より前
+      const willMiss = remaining[o.id] > 0.5;    // 計算後も残量あり＝間に合わない
       return { order:o, rem:Math.round(remaining[o.id]), overDeadline };
     })
     .sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
@@ -410,12 +411,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* 納期超過アラートバナー */}
+      {/* 納期アラートバナー */}
       {alerts.length > 0 && (
         <div className="no-print" style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
           <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>
-            ⚠️ {alerts.filter(a=>a.overDeadline).length > 0 ? `納期超過 ${alerts.filter(a=>a.overDeadline).length}件` : ""}
-            {alerts.filter(a=>!a.overDeadline).length > 0 ? `　⏰ バッファ切れ ${alerts.filter(a=>!a.overDeadline).length}件` : ""}
+            ⚠️ 納期までに間に合わない注文 {alerts.length}件
           </span>
           {alerts.map(({order,rem,overDeadline}) => (
             <span key={order.id} style={{
@@ -424,7 +424,7 @@ export default function App() {
               borderRadius:6, padding:"3px 10px", fontSize:12,
               color: overDeadline?"#fc8181":"#f6ad55"
             }}>
-              {overDeadline?"🚨":"⏰"} {productMap[order.productId]?.name}（〆{fmt(order.deadline)}）残 {rem.toLocaleString()}個
+              {overDeadline?"🚨":"⚠️"} {productMap[order.productId]?.name}（〆{fmt(order.deadline)}）残 {rem.toLocaleString()}個
             </span>
           ))}
         </div>
