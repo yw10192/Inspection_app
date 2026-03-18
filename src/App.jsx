@@ -3,10 +3,13 @@ import { useState, useMemo, useEffect } from "react";
 // ─── 印刷用スタイル注入 ──────────────────────────────────────────
 const printStyle = `
   @media print {
-    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    body { background: #0f1117 !important; margin: 0; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
+    body { background: #fff !important; margin: 0; color: #000; }
     .no-print { display: none !important; }
     .print-hidden { display: none !important; }
+    .print-only { display: block !important; }
+    .screen-only { display: none !important; }
+    @page { size: A4 landscape; margin: 8mm; }
   }
 `;
 
@@ -462,14 +465,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
     return dateKeys.filter(dk => dk >= printFrom && dk <= printTo);
   }, [dateKeys, printFrom, printTo]);
 
-  const handlePrint = () => {
-    // 印刷範囲をCSSカスタムプロパティで制御するためdatasetに設定
-    document.body.dataset.printFrom = printFrom;
-    document.body.dataset.printTo   = printTo;
-    window.print();
-    delete document.body.dataset.printFrom;
-    delete document.body.dataset.printTo;
-  };
+  const handlePrint = () => { window.print(); };
   const orderMap = useMemo(() => { const m={}; orders.forEach(o=>m[o.id]=o); return m; }, [orders]);
   const deadlineByDate = useMemo(() => {
     const m={};
@@ -886,7 +882,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
         </div>
       </div>
 
-      {/* サマリーカード */}
+      {/* サマリーカード（画面のみ） */}
       <div className="no-print" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, marginTop:20 }}>
         {[...orders].sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map((o) => {
           const p = productMap[o.productId];
@@ -914,6 +910,175 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             </div>
           );
         })}
+      </div>
+
+      {/* ═══ 印刷専用カレンダービュー（白背景・A4横） ═══ */}
+      <PrintCalendar
+        inspectors={inspectors}
+        dateKeys={dateKeys}
+        schedule={schedule}
+        orders={orders}
+        productMap={productMap}
+        remaining={remaining}
+        today={today}
+        printFrom={printFrom}
+        printTo={printTo}
+      />
+    </div>
+  );
+}
+
+// ─── 印刷専用カレンダービュー ──────────────────────────────────────
+function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, remaining, today, printFrom, printTo }) {
+  const DOW = ["日","月","火","水","木","金","土"];
+  const orderMap = Object.fromEntries(orders.map(o=>[o.id,o]));
+
+  // 印刷範囲のdateKeys
+  const rangeDk = dateKeys.filter(dk => dk >= printFrom && dk <= printTo);
+
+  // 週ごとに分割（月〜日）
+  const weeks = [];
+  let week = [];
+  for (const dk of rangeDk) {
+    const dow = new Date(dk+"T00:00:00").getDay();
+    if (dow === 1 && week.length > 0) { weeks.push(week); week = []; }
+    week.push(dk);
+  }
+  if (week.length > 0) weeks.push(week);
+
+  return (
+    <div className="print-only" style={{ display:"none" }}>
+      {inspectors.map((ins, insIdx) => {
+        // 検査員ごとにページ（週×ページ分割）
+        return weeks.map((wk, wkIdx) => {
+          const weekLabel = `${wk[0]} 〜 ${wk[wk.length-1]}`;
+          return (
+            <div key={`${ins.id}-${wkIdx}`} style={{
+              pageBreakAfter: "always",
+              width:"100%", fontFamily:"'Noto Sans JP','Meiryo',sans-serif",
+              padding:"4mm", color:"#000", background:"#fff",
+            }}>
+              {/* ヘッダー */}
+              <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:4, borderBottom:"2px solid #333", paddingBottom:3 }}>
+                <div>
+                  <span style={{ fontSize:18, fontWeight:900 }}>{ins.name}</span>
+                  <span style={{ fontSize:12, marginLeft:12, color:"#444" }}>検査計画表</span>
+                </div>
+                <div style={{ fontSize:11, color:"#444" }}>{weekLabel}　印刷日: {toKey(new Date())}</div>
+              </div>
+
+              {/* 週カレンダーグリッド */}
+              <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
+                <colgroup>
+                  {wk.map(dk => <col key={dk} style={{ width:`${100/wk.length}%` }} />)}
+                </colgroup>
+                <thead>
+                  <tr>
+                    {wk.map(dk => {
+                      const dt = new Date(dk+"T00:00:00");
+                      const dow = dt.getDay();
+                      const isToday = dk === today;
+                      const color = dow===0?"#c00": dow===6?"#006":"#000";
+                      return (
+                        <th key={dk} style={{
+                          border:"1px solid #ccc", padding:"4px 3px", textAlign:"center",
+                          background: isToday?"#fff9c4": dow===0?"#fff0f0": dow===6?"#f0f0ff":"#f5f5f5",
+                          color,
+                        }}>
+                          <div style={{ fontSize:13, fontWeight:700 }}>{DOW[dow]}</div>
+                          <div style={{ fontSize:16, fontWeight:900 }}>{dt.getMonth()+1}/{dt.getDate()}</div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {wk.map(dk => {
+                      const tasks = schedule[ins.id]?.[dk] || [];
+                      const dt = new Date(dk+"T00:00:00");
+                      const dow = dt.getDay();
+                      const isWeekend = dow===0||dow===6;
+                      const totalQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
+
+                      // 休日判定
+                      const hols = ins.holidays||[];
+                      const hol = hols.find(h=>h.date===dk);
+                      const isFullHol = isWeekend || (hol && !hol.half);
+                      const isHalfHol = hol && hol.half;
+
+                      return (
+                        <td key={dk} style={{
+                          border:"1px solid #ccc",
+                          verticalAlign:"top",
+                          padding:"3px",
+                          minHeight:80,
+                          background: isFullHol?"#f0f0f0": isHalfHol?"#fffbf0":"#fff",
+                        }}>
+                          {isFullHol ? (
+                            <div style={{ color:"#999", fontSize:11, textAlign:"center", padding:"8px 0" }}>
+                              {isWeekend?"休日":"🏖️ 全休"}
+                            </div>
+                          ) : isHalfHol ? (
+                            <div>
+                              <div style={{ color:"#b8860b", fontSize:10, marginBottom:3 }}>🌅 午後半休</div>
+                              {tasks.map((t,i) => <TaskBlock key={i} t={t} productMap={productMap} orderMap={orderMap} />)}
+                            </div>
+                          ) : tasks.length===0 ? (
+                            <div style={{ color:"#bbb", fontSize:10, textAlign:"center", padding:"8px 0" }}>予定なし</div>
+                          ) : (
+                            <div>
+                              {tasks.map((t,i) => <TaskBlock key={i} t={t} productMap={productMap} orderMap={orderMap} />)}
+                              {tasks.length > 1 && (
+                                <div style={{ fontSize:10, color:"#555", borderTop:"1px solid #ddd", marginTop:3, paddingTop:2, textAlign:"right" }}>
+                                  計 {totalQty.toLocaleString()}個
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* 製品凡例 */}
+              <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+                {Object.values(productMap).map(p=>(
+                  <div key={p.id} style={{ display:"flex", alignItems:"center", gap:3, fontSize:10 }}>
+                    <div style={{ width:10, height:10, borderRadius:2, background:p.color }} />
+                    <span>{p.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        });
+      })}
+    </div>
+  );
+}
+
+// タスクブロック（印刷用）
+function TaskBlock({ t, productMap, orderMap }) {
+  const p = productMap[t.productId];
+  const o = orderMap[t.orderId];
+  const qty = Math.round(t.qty);
+  const dl = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
+  return (
+    <div style={{
+      borderLeft:`4px solid ${p?.color||"#888"}`,
+      background:`${p?.color||"#888"}18`,
+      borderRadius:3,
+      padding:"3px 5px",
+      marginBottom:3,
+    }}>
+      <div style={{ fontSize:13, fontWeight:700, color:"#000" }}>
+        {t.isManual?"📌":""}{p?.name}
+      </div>
+      <div style={{ fontSize:11, color:"#333" }}>
+        {qty.toLocaleString()}個　{dl}
       </div>
     </div>
   );
