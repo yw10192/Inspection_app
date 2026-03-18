@@ -4,7 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 const printStyle = `
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
-    body { background: #fff !important; margin: 0; color: #000; }
+    body, .app-root { background: #fff !important; color: #000 !important; }
+    body { margin: 0; }
     .no-print { display: none !important; }
     .print-hidden { display: none !important; }
     .print-only { display: block !important; }
@@ -365,7 +366,7 @@ export default function App() {
   ];
 
   return (
-    <div style={{ fontFamily:"'Noto Sans JP','Segoe UI',sans-serif", background:"#0f1117", minHeight:"100vh", color:"#e2e8f0" }}>
+    <div className="app-root" style={{ fontFamily:"'Noto Sans JP','Segoe UI',sans-serif", background:"#0f1117", minHeight:"100vh", color:"#e2e8f0" }}>
       {/* Header */}
       <div className="no-print" style={{ background:"linear-gradient(135deg,#1a1f2e,#1e2640)", borderBottom:"1px solid #2d3748", padding:"14px 24px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", boxShadow:"0 4px 20px rgba(0,0,0,0.4)" }}>
         <div style={{ width:40, height:40, borderRadius:10, background:"linear-gradient(135deg,#667eea,#764ba2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🔍</div>
