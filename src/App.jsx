@@ -537,7 +537,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
     const outOfPrintRange = dk < printFrom || dk > printTo;
 
-
+    // このセルのタスクに含まれる注文のアラート判定
+    const cellAlert = tasks.reduce((acc, t) => {
+      if ((overdueQty[t.orderId]||0) > 0.5) return "red";
+      if (acc !== "red" && (bufferQty[t.orderId]||0) > 0.5) return "yellow";
+      return acc;
+    }, "none");
 
     return (
       <div className={outOfPrintRange ? "print-hidden" : ""} style={{
@@ -593,6 +598,14 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 );
               })}
               {isToday && <div style={{ position:"absolute", top:0, left:0, bottom:0, width:2, background:"#67e8f9", opacity:0.8 }} />}
+              {cellAlert !== "none" && (
+                <div style={{
+                  position:"absolute", top:1, right:2,
+                  fontSize:10, lineHeight:1, pointerEvents:"none",
+                }}>
+                  {cellAlert === "red" ? "🚨" : "⚠️"}
+                </div>
+              )}
             </>
         }
         {deadlineByDate[dk] && <div style={{ position:"absolute", right:0, top:0, bottom:0, width:2, background:"#f6ad55", opacity:0.7 }} />}
