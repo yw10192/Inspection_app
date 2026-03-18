@@ -9,7 +9,7 @@ const printStyle = `
     .print-hidden { display: none !important; }
     .print-only { display: block !important; }
     .screen-only { display: none !important; }
-    @page { size: A4 landscape; margin: 8mm; }
+    @page { size: A4 portrait; margin: 8mm; }
   }
 `;
 
@@ -813,7 +813,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
       </div>
 
-      <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #2d3748" }}>
+      <div className="screen-only" style={{ overflowX:"auto", borderRadius:12, border:"1px solid #2d3748" }}>
         <div style={{ minWidth: dateKeys.length * DAY_W + 190 }}>
           {/* 日付ヘッダー */}
           <div style={{ display:"flex", background:"#1a1f2e", borderBottom:"1px solid #2d3748" }}>
@@ -949,7 +949,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
 // ─── 印刷専用カレンダービュー（1ページ=1人・5週分） ───────────────
 function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, remaining, today, printFrom, printTo }) {
-  const DOW = ["日","月","火","水","木","金","土"];
+  const DOW_MON = ["月","火","水","木","金","土","日"]; // 月曜始まり
   const orderMap = Object.fromEntries(orders.map(o=>[o.id,o]));
 
   // 印刷範囲
@@ -1007,22 +1007,22 @@ function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, rem
               <div style={{ fontSize:11, color:"#666" }}>印刷日: {toKey(new Date())}</div>
             </div>
 
-            {/* 曜日ヘッダー（固定） */}
+            {/* 曜日ヘッダー（月曜始まり固定） */}
             <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed", flexShrink:0, marginBottom:0 }}>
               <colgroup>
-                {Array.from({length:7},(_,i)=>(
+                {DOW_MON.map((_,i)=>(
                   <col key={i} style={{ width:`${100/7}%` }} />
                 ))}
               </colgroup>
               <thead>
                 <tr>
-                  {DOW.map((d,i)=>{
-                    const isSun=i===0, isSat=i===6;
+                  {DOW_MON.map((d,i)=>{
+                    const isSat=i===5, isSun=i===6;
                     return (
                       <th key={i} style={{
-                        border:"1px solid #999", padding:"3px 0", textAlign:"center",
+                        border:"1px solid #999", padding:"4px 0", textAlign:"center",
                         background: isSun?"#ffe0e0": isSat?"#e0e8ff":"#f0f0f0",
-                        fontSize:13, fontWeight:700,
+                        fontSize:14, fontWeight:700,
                         color: isSun?"#c00": isSat?"#006":"#000",
                       }}>{d}</th>
                     );
@@ -1031,10 +1031,10 @@ function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, rem
               </thead>
             </table>
 
-            {/* 週グリッド（5週分） */}
+            {/* 週グリッド（5週分・均等高さ） */}
             <div style={{ flex:1, display:"flex", flexDirection:"column", gap:0 }}>
               {allWeeks.map((wk, wkIdx) => (
-                <div key={wkIdx} style={{ display:"flex", flex:1, borderBottom:"1px solid #999" }}>
+                <div key={wkIdx} style={{ display:"flex", height:`${100/MAX_WEEKS}%`, minHeight:0, borderBottom:"1px solid #999" }}>
                   {wk.map((dk, dIdx) => {
                     const dt = new Date(dk+"T00:00:00");
                     const dow = dt.getDay();
@@ -1128,18 +1128,18 @@ function PrintTask({ t, productMap, orderMap }) {
   const dl = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
   return (
     <div style={{
-      borderLeft:`3px solid ${p?.color||"#888"}`,
-      background:`${p?.color||"#888"}20`,
+      borderLeft:`4px solid ${p?.color||"#888"}`,
+      background:`${p?.color||"#888"}22`,
       borderRadius:2,
-      padding:"1px 3px",
-      marginBottom:2,
+      padding:"2px 4px",
+      marginBottom:3,
       overflow:"hidden",
     }}>
-      <div style={{ fontSize:10, fontWeight:700, color:"#000", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+      <div style={{ fontSize:14, fontWeight:900, color:"#000", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", lineHeight:1.2 }}>
         {t.isManual?"📌":""}{p?.name}
       </div>
-      <div style={{ fontSize:9, color:"#333" }}>
-        {qty.toLocaleString()}個 {dl}
+      <div style={{ fontSize:11, color:"#333", fontWeight:600 }}>
+        {qty.toLocaleString()}個　{dl}
       </div>
     </div>
   );
