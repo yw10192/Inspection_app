@@ -196,6 +196,19 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
   // 納期昇順のベースソート
   const sortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
 
+  // 2段階eligible: 3日前までに終わらせたい注文を優先し、
+  // 残量があれば納期を超えてでも割り当てる
+  function buildEligible(ins, dk) {
+    const deadline3 = sortedOrders.filter(
+      (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && toKey(addDays(o.deadline, -3)) >= dk
+    );
+    if (deadline3.length > 0) return deadline3;
+    // 3日前では間に合わない → 納期を超えてでも割り当て
+    return sortedOrders.filter(
+      (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId)
+    );
+  }
+
   // ── 製品ごとの担当検査員を事前に割り当てる ──────────────────────
   // 各製品（productId）について、担当できる検査員のうち
   // その製品の検査速度が最も高い検査員を担当者として固定する。
@@ -252,10 +265,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
         if (!actual || getActualTotal(actual) <= 0) {
           // 実績なし → 予定通り処理したとして計画値で消化
           let hoursLeft = availHours;
-          const base = sortedOrders.filter(
-            (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
-          );
-          const eligible = sortByAssignment(base, ins.id);
+          const eligible = sortByAssignment(buildEligible(ins, dk), ins.id);
           for (const order of eligible) {
             if (hoursLeft <= 0.001) break;
             const spd = ins.speedPerProduct[order.productId] || 0;
@@ -269,10 +279,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
         } else {
           // 実績あり → 実績数量で締め切りが近い順に消化
           let qtyLeft = getActualTotal(actual);
-          const base = sortedOrders.filter(
-            (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
-          );
-          const eligible = sortByAssignment(base, ins.id);
+          const eligible = sortByAssignment(buildEligible(ins, dk), ins.id);
           for (const order of eligible) {
             if (qtyLeft <= 0) break;
             const doQty = Math.min(qtyLeft, remaining[order.id]);
@@ -291,10 +298,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
           return s + t.qty / spd;
         }, 0);
         let hoursLeft = Math.max(0, availHours - manualHours);
-        const base = sortedOrders.filter(
-          (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
-        );
-        const eligible = sortByAssignment(base, ins.id);
+        const eligible = sortByAssignment(buildEligible(ins, dk), ins.id);
         for (const order of eligible) {
           if (hoursLeft <= 0.001) break;
           const spd = ins.speedPerProduct[order.productId] || 0;
