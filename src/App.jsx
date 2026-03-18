@@ -639,10 +639,15 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
   const [modalForm, setModalForm] = useState({ orderId:"", qty:0 });
 
   const openModal = (ins, dk, x, y) => {
-    const eligible = orders.filter(o => ins.canInspect.includes(o.productId) && remaining[o.id] > 0.5);
+    // 担当できる注文をすべて表示（残量0でも手動設定可能）
+    const eligible = orders
+      .filter(o => ins.canInspect.includes(o.productId))
+      .sort((a,b) => new Date(a.deadline)-new Date(b.deadline));
     if (eligible.length === 0) return;
-    const first = eligible.sort((a,b) => new Date(a.deadline)-new Date(b.deadline))[0];
-    setModalForm({ orderId: first?.id || "", qty: first ? Math.round(Math.min(remaining[first.id], ins.speedPerProduct[first.productId] * ins.workHours)) : 0 });
+    const first = eligible[0];
+    const rem = Math.max(remaining[first.id]||0, 0);
+    const spd = ins.speedPerProduct[first.productId] || 1;
+    setModalForm({ orderId: first.id, qty: Math.round(Math.min(rem > 0 ? rem : first.quantity, spd * ins.workHours)) });
     setCellModal({ ins, dk, x, y });
   };
 
@@ -666,7 +671,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
       {cellModal && (() => {
         const { ins, dk, x, y } = cellModal;
         const eligible = orders
-          .filter(o => ins.canInspect.includes(o.productId) && (remaining[o.id] > 0.5 || manualAssignments.some(m=>m.orderId===o.id && m.inspectorId===ins.id && m.date===dk)))
+          .filter(o => ins.canInspect.includes(o.productId))
           .sort((a,b) => new Date(a.deadline)-new Date(b.deadline));
         const existingManuals = manualAssignments.filter(m => m.inspectorId===ins.id && m.date===dk);
         // モーダル位置（画面端に収まるよう調整）
@@ -708,14 +713,18 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 onChange={e=>{
                   const o = orders.find(x=>x.id===e.target.value);
                   const spd = ins.speedPerProduct[o?.productId] || 1;
-                  const rem = Math.round(Math.min(remaining[e.target.value]||0, spd * ins.workHours));
-                  setModalForm({ orderId:e.target.value, qty: rem });
+                  const rem = Math.max(remaining[e.target.value]||0, 0);
+                  const defaultQty = Math.round(Math.min(rem > 0 ? rem : o?.quantity||0, spd * ins.workHours));
+                  setModalForm({ orderId:e.target.value, qty: defaultQty });
                 }}
                 style={{ ...S.input, width:"100%", fontSize:12 }}>
                 {eligible.map(o => {
                   const p = productMap[o.productId];
                   const rem = Math.round(remaining[o.id]||0);
-                  return <option key={o.id} value={o.id}>{p?.name} 〆{o.deadline} 残{rem.toLocaleString()}個</option>;
+                  const label = rem > 0
+                    ? `${p?.name} 〆${o.deadline} 残${rem.toLocaleString()}個`
+                    : `${p?.name} 〆${o.deadline} ✅スケジュール済`;
+                  return <option key={o.id} value={o.id}>{label}</option>;
                 })}
               </select>
             </div>
