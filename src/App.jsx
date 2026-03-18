@@ -356,9 +356,17 @@ export default function App() {
     return generateSchedule(inspectors, orders, range, actuals, today, manualAssignments);
   }, [inspectors, orders, actuals, today, manualAssignments]);
 
-  // 納期アラート: remaining > 0 の注文で today >= deadline
-  const alerts = useMemo(() => orders.filter(o => remaining[o.id] > 0.5 && o.deadline < today)
-    .map(o => ({ order:o, rem:Math.round(remaining[o.id]) })), [orders, remaining, today]);
+  // 納期アラート:
+  // ・納期超過: 納期 < 今日 かつ 残量あり
+  // ・バッファ切れ: 納期3日前 < 今日 かつ 残量あり（間に合わない可能性）
+  const alerts = useMemo(() => orders
+    .filter(o => remaining[o.id] > 0.5 && toKey(addDays(o.deadline, -3)) < today)
+    .map(o => {
+      const overDeadline = o.deadline < today;
+      return { order:o, rem:Math.round(remaining[o.id]), overDeadline };
+    })
+    .sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
+  [orders, remaining, today]);
 
   const tabs = [
     { key:"gantt",      label:"📊 ガントチャート" },
@@ -405,10 +413,18 @@ export default function App() {
       {/* 納期超過アラートバナー */}
       {alerts.length > 0 && (
         <div className="no-print" style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-          <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>⚠️ 納期超過 {alerts.length}件</span>
-          {alerts.map(({order,rem}) => (
-            <span key={order.id} style={{ background:"#fc818122", border:"1px solid #fc818144", borderRadius:6, padding:"3px 10px", fontSize:12, color:"#fc8181" }}>
-              {productMap[order.productId]?.name}（〆{fmt(order.deadline)}）残 {rem.toLocaleString()}個
+          <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>
+            ⚠️ {alerts.filter(a=>a.overDeadline).length > 0 ? `納期超過 ${alerts.filter(a=>a.overDeadline).length}件` : ""}
+            {alerts.filter(a=>!a.overDeadline).length > 0 ? `　⏰ バッファ切れ ${alerts.filter(a=>!a.overDeadline).length}件` : ""}
+          </span>
+          {alerts.map(({order,rem,overDeadline}) => (
+            <span key={order.id} style={{
+              background: overDeadline?"#fc818122":"#f6ad5522",
+              border: overDeadline?"1px solid #fc818144":"1px solid #f6ad5544",
+              borderRadius:6, padding:"3px 10px", fontSize:12,
+              color: overDeadline?"#fc8181":"#f6ad55"
+            }}>
+              {overDeadline?"🚨":"⏰"} {productMap[order.productId]?.name}（〆{fmt(order.deadline)}）残 {rem.toLocaleString()}個
             </span>
           ))}
         </div>
