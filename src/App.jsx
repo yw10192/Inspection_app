@@ -286,7 +286,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
           }
         }
       } else {
-        // 未来日: 同じ製品を連続させながらスケジュール
+        // 未来日: 納期の早い注文を完全に消化してから次の注文へ
         // 手動割り当て済みの時間を先に差し引く
         const manualTasks = schedule[ins.id][dk].filter(t => t.isManual);
         const manualHours = manualTasks.reduce((s, t) => {
@@ -294,8 +294,13 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
           return s + t.qty / spd;
         }, 0);
         let hoursLeft = Math.max(0, availHours - manualHours);
-        const eligible = sortByAssignment(buildEligible(ins, dk), ins.id);
-        for (const order of eligible) {
+
+        // 担当できる注文を納期昇順で取得（残量あるもの全て）
+        const allEligible = sortedOrders.filter(
+          o => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId)
+        );
+
+        for (const order of allEligible) {
           if (hoursLeft <= 0.001) break;
           const spd = ins.speedPerProduct[order.productId] || 0;
           if (!spd) continue;
