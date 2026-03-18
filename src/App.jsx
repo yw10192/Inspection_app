@@ -313,7 +313,21 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
     }
   }
 
-  return { schedule, remaining, dateKeys };
+  // 納期を超えて割り当てられた量を集計
+  const overdueQty = {}; // { orderId: 超過割り当て量 }
+  orders.forEach(o => { overdueQty[o.id] = 0; });
+  for (const dk of dateKeys) {
+    for (const ins of inspectors) {
+      for (const task of (schedule[ins.id][dk] || [])) {
+        const order = orders.find(o => o.id === task.orderId);
+        if (order && dk > order.deadline) {
+          overdueQty[task.orderId] = (overdueQty[task.orderId] || 0) + task.qty;
+        }
+      }
+    }
+  }
+
+  return { schedule, remaining, dateKeys, overdueQty };
 }
 
 // ─── スタイル ─────────────────────────────────────────────────────
@@ -351,23 +365,24 @@ export default function App() {
 
   const productMap = useMemo(() => { const m={}; products.forEach(p=>m[p.id]=p); return m; }, [products]);
 
-  const { schedule, remaining, dateKeys } = useMemo(() => {
+  const { schedule, remaining, dateKeys, overdueQty } = useMemo(() => {
     const range = calcRange(orders);
     return generateSchedule(inspectors, orders, range, actuals, today, manualAssignments);
   }, [inspectors, orders, actuals, today, manualAssignments]);
 
   // 納期アラート:
-  // ・納期超過: 納期 < 今日 かつ 残量あり（すでに遅れている）
-  // ・間に合わない: スケジュール計算後も残量あり（納期前でも）
+  // ・残量あり: スケジュール後も割り当てられなかった量がある
+  // ・納期超え割り当て: 納期を超えた日に割り当てが発生している
   const alerts = useMemo(() => orders
-    .filter(o => remaining[o.id] > 0.5)
+    .filter(o => remaining[o.id] > 0.5 || (overdueQty[o.id] > 0.5))
     .map(o => {
-      const overDeadline = o.deadline < today;   // 納期が今日より前
-      const willMiss = remaining[o.id] > 0.5;    // 計算後も残量あり＝間に合わない
-      return { order:o, rem:Math.round(remaining[o.id]), overDeadline };
+      const overDeadline = o.deadline < today;
+      const hasOverdue = (overdueQty[o.id] || 0) > 0.5;
+      const hasRemaining = remaining[o.id] > 0.5;
+      return { order:o, rem:Math.round(remaining[o.id]), overdueAmt:Math.round(overdueQty[o.id]||0), overDeadline, hasOverdue, hasRemaining };
     })
     .sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
-  [orders, remaining, today]);
+  [orders, remaining, overdueQty, today]);
 
   const tabs = [
     { key:"gantt",      label:"📊 ガントチャート" },
@@ -414,19 +429,23 @@ export default function App() {
       {/* 納期アラートバナー */}
       {alerts.length > 0 && (
         <div className="no-print" style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-          <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>
-            ⚠️ 納期までに間に合わない注文 {alerts.length}件
-          </span>
-          {alerts.map(({order,rem,overDeadline}) => (
-            <span key={order.id} style={{
-              background: overDeadline?"#fc818122":"#f6ad5522",
-              border: overDeadline?"1px solid #fc818144":"1px solid #f6ad5544",
-              borderRadius:6, padding:"3px 10px", fontSize:12,
-              color: overDeadline?"#fc8181":"#f6ad55"
-            }}>
-              {overDeadline?"🚨":"⚠️"} {productMap[order.productId]?.name}（〆{fmt(order.deadline)}）残 {rem.toLocaleString()}個
-            </span>
-          ))}
+          <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>⚠️ 納期注意 {alerts.length}件</span>
+          {alerts.map(({order,rem,overdueAmt,overDeadline,hasOverdue,hasRemaining}) => {
+            const p = productMap[order.productId];
+            const icon = overDeadline ? "🚨" : "⚠️";
+            const color = overDeadline ? "#fc8181" : "#f6ad55";
+            const bg    = overDeadline ? "#fc818122" : "#f6ad5522";
+            const bd    = overDeadline ? "#fc818144" : "#f6ad5544";
+            const detail = [
+              hasOverdue   ? `納期超え割当 ${overdueAmt.toLocaleString()}個` : null,
+              hasRemaining ? `未割当 ${rem.toLocaleString()}個` : null,
+            ].filter(Boolean).join("・");
+            return (
+              <span key={order.id} style={{ background:bg, border:`1px solid ${bd}`, borderRadius:6, padding:"3px 10px", fontSize:12, color }}>
+                {icon} {p?.name}（〆{fmt(order.deadline)}）{detail}
+              </span>
+            );
+          })}
         </div>
       )}
 
