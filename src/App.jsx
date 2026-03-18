@@ -196,17 +196,19 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
   // 納期昇順のベースソート
   const sortedOrders = [...orders].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
 
-  // 2段階eligible: 3日前までに終わらせたい注文を優先し、
-  // 残量があれば納期を超えてでも割り当てる
+  // eligible 構築:
+  // 1. 3日前以内に納期が来る注文を優先（納期昇順）
+  // 2. それがない場合のみ、納期を超えた注文も含める
+  // ※ 同一製品で納期違いが複数ある場合も必ず納期昇順を維持
   function buildEligible(ins, dk) {
-    const deadline3 = sortedOrders.filter(
-      (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && toKey(addDays(o.deadline, -3)) >= dk
-    );
-    if (deadline3.length > 0) return deadline3;
-    // 3日前では間に合わない → 納期を超えてでも割り当て
-    return sortedOrders.filter(
+    const all = sortedOrders.filter(
       (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId)
     );
+    // 3日前以内（バッファ内）の注文
+    const withinBuffer = all.filter(o => toKey(addDays(o.deadline, -3)) >= dk);
+    if (withinBuffer.length > 0) return withinBuffer;
+    // バッファを超えた注文しかない → 納期超えも許容（すでに納期昇順）
+    return all;
   }
 
   // ── 製品ごとの担当検査員を事前に割り当てる ──────────────────────
@@ -238,15 +240,9 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
     inspectorLoad[best.id]++;
   }
 
-  // 担当製品以外は他の検査員が手伝える優先度を下げる並び替え
-  // eligible を「担当者が自分」→「担当者が他人（ヘルプ）」→ 納期順 で並べる
+  // 納期順で並び替え（担当者優先は納期逆転を起こすため廃止）
   function sortByAssignment(eligible, insId) {
-    return [...eligible].sort((a, b) => {
-      const aPrimary = productAssignment[a.productId] === insId ? 0 : 1;
-      const bPrimary = productAssignment[b.productId] === insId ? 0 : 1;
-      if (aPrimary !== bPrimary) return aPrimary - bPrimary;
-      return new Date(a.deadline) - new Date(b.deadline);
-    });
+    return [...eligible].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
   }
 
   for (const dk of dateKeys) {
