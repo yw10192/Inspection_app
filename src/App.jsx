@@ -783,8 +783,8 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           </div>
         )}
       </div>
-      {/* 凡例 */}
-      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+      {/* 凡例（画面のみ） */}
+      <div className="screen-only" style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
         {Object.values(productMap).map((p) => (
           <div key={p.id} style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px", border:`1px solid ${p.color}44` }}>
             <div style={{ width:10, height:10, borderRadius:2, background:p.color }} />
@@ -947,21 +947,16 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
   );
 }
 
-// ─── 印刷専用カレンダービュー（1ページ=1人・5週分） ───────────────
+// ─── 印刷専用カレンダービュー（1ページ=1人・5週分・日曜始まり） ────
 function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, remaining, today, printFrom, printTo }) {
-  const DOW_MON = ["月","火","水","木","金","土","日"]; // 月曜始まり
+  // 日曜始まり
+  const DOW_SUN = ["日","月","火","水","木","金","土"];
   const orderMap = Object.fromEntries(orders.map(o=>[o.id,o]));
 
-  // 印刷範囲
-  const rangeDk = dateKeys.filter(dk => dk >= printFrom && dk <= printTo);
-
-  // 月曜始まりの週グリッドを生成
-  // 最初の月曜まで遡る
-  function getMondayOf(dk) {
+  function getSundayOf(dk) {
     const d = new Date(dk+"T00:00:00");
-    const dow = d.getDay();
-    const diff = (dow===0?-6:1-dow);
-    d.setDate(d.getDate()+diff);
+    const dow = d.getDay(); // 0=日
+    d.setDate(d.getDate() - dow); // 直前の日曜へ
     return toKey(d);
   }
   function addDay(dk, n) {
@@ -970,177 +965,157 @@ function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, rem
     return toKey(d);
   }
 
-  const startMonday = getMondayOf(printFrom);
-  const endDate = printTo;
-
-  // 5週分の週リストを生成（最大）
   const MAX_WEEKS = 5;
+  const startSunday = getSundayOf(printFrom);
   const allWeeks = [];
-  let curMonday = startMonday;
-  while (curMonday <= endDate && allWeeks.length < MAX_WEEKS) {
-    const wk = Array.from({length:7},(_,i)=>addDay(curMonday,i));
+  let cur = startSunday;
+  while (allWeeks.length < MAX_WEEKS) {
+    // 終了日を超えた週でも必ず5週分作る（均等表示のため）
+    const wk = Array.from({length:7},(_,i)=>addDay(cur,i));
     allWeeks.push(wk);
-    curMonday = addDay(curMonday,7);
+    cur = addDay(cur,7);
+    if (cur > printTo && allWeeks.length >= MAX_WEEKS) break;
   }
+  // ちょうど5週になるよう調整
+  while (allWeeks.length < MAX_WEEKS) {
+    const wk = Array.from({length:7},(_,i)=>addDay(cur,i));
+    allWeeks.push(wk);
+    cur = addDay(cur,7);
+  }
+
+  // 1行の高さ: A4縦(297mm) - margin(16mm) - header(~14mm) - dowRow(~8mm) - legend(~8mm) = ~251mm / 5
+  const ROW_H = "calc((100vh - 80px) / 5)";
 
   return (
     <div className="print-only" style={{ display:"none" }}>
       {inspectors.map((ins) => {
-        const hols = ins.holidays||[];
-        const holMap = Object.fromEntries(hols.map(h=>[h.date,h]));
+        const holMap = Object.fromEntries((ins.holidays||[]).map(h=>[h.date,h]));
 
         return (
           <div key={ins.id} style={{
             pageBreakAfter:"always",
-            width:"100%", height:"100%",
+            width:"100%",
             fontFamily:"'Noto Sans JP','Meiryo',sans-serif",
-            padding:"5mm", color:"#000", background:"#fff",
-            display:"flex", flexDirection:"column",
+            padding:"6mm 6mm 4mm 6mm",
+            color:"#000", background:"#fff",
           }}>
             {/* ヘッダー */}
-            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:3, borderBottom:"2.5px solid #000", paddingBottom:3, flexShrink:0 }}>
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:4, borderBottom:"2px solid #000", paddingBottom:3 }}>
               <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
-                <span style={{ fontSize:22, fontWeight:900, letterSpacing:1 }}>{ins.name}</span>
-                <span style={{ fontSize:13, color:"#444" }}>検査計画表</span>
-                <span style={{ fontSize:12, color:"#666" }}>{printFrom} 〜 {printTo}</span>
+                <span style={{ fontSize:20, fontWeight:900 }}>{ins.name}</span>
+                <span style={{ fontSize:12, color:"#444" }}>検査計画表</span>
+                <span style={{ fontSize:11, color:"#666" }}>{fmt(printFrom)} 〜 {fmt(printTo)}</span>
               </div>
-              <div style={{ fontSize:11, color:"#666" }}>印刷日: {toKey(new Date())}</div>
+              <span style={{ fontSize:10, color:"#888" }}>印刷日: {toKey(new Date())}</span>
             </div>
 
-            {/* 曜日ヘッダー（月曜始まり固定） */}
-            <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed", flexShrink:0, marginBottom:0 }}>
+            {/* カレンダーテーブル（曜日ヘッダー＋5週） */}
+            <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
               <colgroup>
-                {DOW_MON.map((_,i)=>(
-                  <col key={i} style={{ width:`${100/7}%` }} />
-                ))}
+                {DOW_SUN.map((_,i)=><col key={i} style={{ width:`${100/7}%` }} />)}
               </colgroup>
+
+              {/* 曜日ヘッダー */}
               <thead>
                 <tr>
-                  {DOW_MON.map((d,i)=>{
-                    const isSat=i===5, isSun=i===6;
+                  {DOW_SUN.map((d,i)=>{
+                    const isSun=i===0, isSat=i===6;
                     return (
                       <th key={i} style={{
-                        border:"1px solid #999", padding:"4px 0", textAlign:"center",
+                        border:"1px solid #888", padding:"3px 0", textAlign:"center",
                         background: isSun?"#ffe0e0": isSat?"#e0e8ff":"#f0f0f0",
-                        fontSize:14, fontWeight:700,
+                        fontSize:13, fontWeight:700,
                         color: isSun?"#c00": isSat?"#006":"#000",
                       }}>{d}</th>
                     );
                   })}
                 </tr>
               </thead>
-            </table>
 
-            {/* 週グリッド（5週分・均等高さ） */}
-            <div style={{ flex:1, display:"flex", flexDirection:"column", gap:0 }}>
-              {allWeeks.map((wk, wkIdx) => (
-                <div key={wkIdx} style={{ display:"flex", height:`${100/MAX_WEEKS}%`, minHeight:0, borderBottom:"1px solid #999" }}>
-                  {wk.map((dk, dIdx) => {
-                    const dt = new Date(dk+"T00:00:00");
-                    const dow = dt.getDay();
-                    const isSun=dow===0, isSat=dow===6;
-                    const isToday = dk===today;
-                    const inRange = dk>=printFrom && dk<=printTo;
-                    const tasks = inRange ? (schedule[ins.id]?.[dk]||[]) : [];
-                    const totalQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
-                    const hol = holMap[dk];
-                    const isFullHol = isSun || isSat || (hol && !hol.half);
-                    const isHalfHol = !isFullHol && hol && hol.half;
+              {/* 5週分の行（均等高さ） */}
+              <tbody>
+                {allWeeks.map((wk, wkIdx) => (
+                  <tr key={wkIdx} style={{ height:"18mm" }}>
+                    {wk.map((dk, dIdx) => {
+                      const dt = new Date(dk+"T00:00:00");
+                      const dow = dt.getDay();
+                      const isSun=dow===0, isSat=dow===6;
+                      const isToday = dk===today;
+                      const inRange = dk>=printFrom && dk<=printTo;
+                      const tasks = inRange ? (schedule[ins.id]?.[dk]||[]) : [];
+                      const totalQty = Math.round(tasks.reduce((s,t)=>s+t.qty,0));
+                      const hol = holMap[dk];
+                      const isFullHol = isSun || isSat || (hol && !hol.half);
+                      const isHalfHol = !isFullHol && hol && hol.half;
 
-                    return (
-                      <div key={dk} style={{
-                        flex:1,
-                        borderLeft: dIdx>0?"1px solid #bbb":"1px solid #999",
-                        borderRight: dIdx===6?"1px solid #999":"none",
-                        background: !inRange?"#f8f8f8": isToday?"#fffff0": isFullHol?"#f0f0f0": isHalfHol?"#fffbf0":"#fff",
-                        display:"flex", flexDirection:"column",
-                        overflow:"hidden",
-                      }}>
-                        {/* 日付 */}
-                        <div style={{
-                          textAlign:"center", padding:"1px 0",
-                          borderBottom:"1px solid #ddd",
-                          background: isToday?"#ffd700": isFullHol?"#e0e0e0":"transparent",
+                      return (
+                        <td key={dk} style={{
+                          border:"1px solid #bbb",
+                          verticalAlign:"top",
+                          padding:"2px",
+                          background: !inRange?"#f4f4f4": isToday?"#fffff0": isFullHol?"#efefef": isHalfHol?"#fffbf0":"#fff",
+                          overflow:"hidden",
                         }}>
-                          <span style={{
-                            fontSize:13, fontWeight:700,
-                            color: !inRange?"#bbb": isSun?"#c00": isSat?"#006":"#000",
+                          {/* 日付 */}
+                          <div style={{
+                            fontSize:12, fontWeight:700, lineHeight:1,
+                            color: !inRange?"#ccc": isSun?"#c00": isSat?"#006":"#000",
+                            marginBottom:2,
+                            background: isToday?"#ffd700":"transparent",
+                            borderRadius:2, padding:"1px 2px", display:"inline-block",
                           }}>
                             {dt.getMonth()+1}/{dt.getDate()}
-                          </span>
-                        </div>
-                        {/* 内容 */}
-                        <div style={{ flex:1, padding:"2px 2px", overflow:"hidden" }}>
-                          {!inRange ? null
-                          : isFullHol ? (
-                            <div style={{ color:"#aaa", fontSize:9, textAlign:"center", paddingTop:4 }}>
-                              {isSun||isSat?"休":"全休"}
-                            </div>
-                          ) : isHalfHol ? (
+                          </div>
+
+                          {/* タスク */}
+                          {inRange && !isFullHol && (
                             <div>
-                              <div style={{ fontSize:8, color:"#b8860b", marginBottom:1 }}>半休</div>
-                              {tasks.map((t,i)=><PrintTask key={i} t={t} productMap={productMap} orderMap={orderMap} />)}
-                            </div>
-                          ) : tasks.length===0 ? (
-                            <div style={{ color:"#ccc", fontSize:9, textAlign:"center", paddingTop:4 }}>—</div>
-                          ) : (
-                            <div>
-                              {tasks.map((t,i)=><PrintTask key={i} t={t} productMap={productMap} orderMap={orderMap} />)}
-                              {tasks.length>1 && (
-                                <div style={{ fontSize:8, color:"#555", borderTop:"1px dotted #ccc", marginTop:1, paddingTop:1, textAlign:"right" }}>
-                                  計{totalQty.toLocaleString()}個
+                              {isHalfHol && <div style={{ fontSize:9, color:"#b8860b" }}>半休</div>}
+                              {tasks.map((t,i)=>(
+                                <div key={i} style={{
+                                  borderLeft:`3px solid ${productMap[t.productId]?.color||"#888"}`,
+                                  background:`${productMap[t.productId]?.color||"#888"}18`,
+                                  borderRadius:2,
+                                  padding:"1px 3px",
+                                  marginBottom:2,
+                                }}>
+                                  <div style={{ fontSize:13, fontWeight:900, color:"#000", lineHeight:1.2, wordBreak:"break-all", whiteSpace:"normal" }}>
+                                    {t.isManual?"📌":""}{productMap[t.productId]?.name}
+                                  </div>
+                                  <div style={{ fontSize:10, color:"#333", fontWeight:600, lineHeight:1.2 }}>
+                                    {Math.round(t.qty).toLocaleString()}個　{orderMap[t.orderId] ? `〆${String(new Date(orderMap[t.orderId].deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(orderMap[t.orderId].deadline+"T00:00:00").getDate()).padStart(2,"0")}` : ""}
+                                  </div>
                                 </div>
+                              ))}
+                              {tasks.length>1 && (
+                                <div style={{ fontSize:9, color:"#555", textAlign:"right" }}>計{totalQty.toLocaleString()}個</div>
                               )}
                             </div>
                           )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+                          {inRange && isFullHol && !inRange && (
+                            <div style={{ color:"#bbb", fontSize:9 }}>休</div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
             {/* 製品凡例 */}
-            <div style={{ display:"flex", gap:10, marginTop:3, flexWrap:"wrap", borderTop:"1px solid #ccc", paddingTop:3, flexShrink:0 }}>
+            <div style={{ display:"flex", gap:8, marginTop:3, flexWrap:"wrap", borderTop:"1px solid #ddd", paddingTop:2 }}>
               {Object.values(productMap).map(p=>(
-                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:3, fontSize:9 }}>
-                  <div style={{ width:8, height:8, borderRadius:1, background:p.color, flexShrink:0 }} />
-                  <span style={{ color:"#333" }}>{p.name}</span>
+                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:2, fontSize:9 }}>
+                  <div style={{ width:8, height:8, borderRadius:1, background:p.color }} />
+                  <span>{p.name}</span>
                 </div>
               ))}
-              <div style={{ display:"flex", alignItems:"center", gap:3, fontSize:9, marginLeft:"auto", color:"#666" }}>
-                📌 = 手動設定
-              </div>
+              <span style={{ fontSize:9, color:"#888", marginLeft:"auto" }}>📌=手動設定</span>
             </div>
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// タスクブロック（印刷用カレンダーセル内）
-function PrintTask({ t, productMap, orderMap }) {
-  const p = productMap[t.productId];
-  const o = orderMap[t.orderId];
-  const qty = Math.round(t.qty);
-  const dl = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
-  return (
-    <div style={{
-      borderLeft:`4px solid ${p?.color||"#888"}`,
-      background:`${p?.color||"#888"}22`,
-      borderRadius:2,
-      padding:"2px 4px",
-      marginBottom:3,
-      overflow:"hidden",
-    }}>
-      <div style={{ fontSize:14, fontWeight:900, color:"#000", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", lineHeight:1.2 }}>
-        {t.isManual?"📌":""}{p?.name}
-      </div>
-      <div style={{ fontSize:11, color:"#333", fontWeight:600 }}>
-        {qty.toLocaleString()}個　{dl}
-      </div>
     </div>
   );
 }
