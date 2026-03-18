@@ -313,21 +313,25 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
     }
   }
 
-  // 納期を超えて割り当てられた量を集計
-  const overdueQty = {}; // { orderId: 超過割り当て量 }
-  orders.forEach(o => { overdueQty[o.id] = 0; });
+  // 納期超え・3日前超えの割り当て量を集計
+  const overdueQty = {};  // 納期当日超え
+  const bufferQty  = {};  // 3日前超え（納期含まず）
+  orders.forEach(o => { overdueQty[o.id] = 0; bufferQty[o.id] = 0; });
   for (const dk of dateKeys) {
     for (const ins of inspectors) {
       for (const task of (schedule[ins.id][dk] || [])) {
         const order = orders.find(o => o.id === task.orderId);
-        if (order && dk > order.deadline) {
-          overdueQty[task.orderId] = (overdueQty[task.orderId] || 0) + task.qty;
+        if (!order) continue;
+        if (dk > order.deadline) {
+          overdueQty[order.id] = (overdueQty[order.id] || 0) + task.qty;
+        } else if (dk > toKey(addDays(order.deadline, -3))) {
+          bufferQty[order.id] = (bufferQty[order.id] || 0) + task.qty;
         }
       }
     }
   }
 
-  return { schedule, remaining, dateKeys, overdueQty };
+  return { schedule, remaining, dateKeys, overdueQty, bufferQty };
 }
 
 // ─── スタイル ─────────────────────────────────────────────────────
@@ -365,24 +369,29 @@ export default function App() {
 
   const productMap = useMemo(() => { const m={}; products.forEach(p=>m[p.id]=p); return m; }, [products]);
 
-  const { schedule, remaining, dateKeys, overdueQty } = useMemo(() => {
+  const { schedule, remaining, dateKeys, overdueQty, bufferQty } = useMemo(() => {
     const range = calcRange(orders);
     return generateSchedule(inspectors, orders, range, actuals, today, manualAssignments);
   }, [inspectors, orders, actuals, today, manualAssignments]);
 
   // 納期アラート:
-  // ・残量あり: スケジュール後も割り当てられなかった量がある
-  // ・納期超え割り当て: 納期を超えた日に割り当てが発生している
+  // 🚨赤: 納期当日を超えて割り当てが発生
+  // ⚠️黄: 納期3日前を超えて割り当てが発生（バッファ食い込み）
   const alerts = useMemo(() => orders
-    .filter(o => remaining[o.id] > 0.5 || (overdueQty[o.id] > 0.5))
+    .filter(o => (overdueQty[o.id]||0) > 0.5 || (bufferQty[o.id]||0) > 0.5)
     .map(o => {
-      const overDeadline = o.deadline < today;
-      const hasOverdue = (overdueQty[o.id] || 0) > 0.5;
-      const hasRemaining = remaining[o.id] > 0.5;
-      return { order:o, rem:Math.round(remaining[o.id]), overdueAmt:Math.round(overdueQty[o.id]||0), overDeadline, hasOverdue, hasRemaining };
+      const isRed    = (overdueQty[o.id]||0) > 0.5; // 🚨 納期超え
+      const isYellow = !isRed && (bufferQty[o.id]||0) > 0.5; // ⚠️ バッファ超え
+      return {
+        order:o,
+        rem:      Math.round(remaining[o.id]||0),
+        overdueAmt: Math.round(overdueQty[o.id]||0),
+        bufferAmt:  Math.round(bufferQty[o.id]||0),
+        isRed, isYellow,
+      };
     })
     .sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
-  [orders, remaining, overdueQty, today]);
+  [orders, remaining, overdueQty, bufferQty, today]);
 
   const tabs = [
     { key:"gantt",      label:"📊 ガントチャート" },
@@ -429,17 +438,19 @@ export default function App() {
       {/* 納期アラートバナー */}
       {alerts.length > 0 && (
         <div className="no-print" style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-          <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>⚠️ 納期注意 {alerts.length}件</span>
-          {alerts.map(({order,rem,overdueAmt,overDeadline,hasOverdue,hasRemaining}) => {
+          <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>
+            {alerts.filter(a=>a.isRed).length > 0 && `🚨 納期超え ${alerts.filter(a=>a.isRed).length}件　`}
+            {alerts.filter(a=>a.isYellow).length > 0 && `⚠️ バッファ超え ${alerts.filter(a=>a.isYellow).length}件`}
+          </span>
+          {alerts.map(({order,rem,overdueAmt,bufferAmt,isRed,isYellow}) => {
             const p = productMap[order.productId];
-            const icon = overDeadline ? "🚨" : "⚠️";
-            const color = overDeadline ? "#fc8181" : "#f6ad55";
-            const bg    = overDeadline ? "#fc818122" : "#f6ad5522";
-            const bd    = overDeadline ? "#fc818144" : "#f6ad5544";
-            const detail = [
-              hasOverdue   ? `納期超え割当 ${overdueAmt.toLocaleString()}個` : null,
-              hasRemaining ? `未割当 ${rem.toLocaleString()}個` : null,
-            ].filter(Boolean).join("・");
+            const icon  = isRed ? "🚨" : "⚠️";
+            const color = isRed ? "#fc8181" : "#f6ad55";
+            const bg    = isRed ? "#fc818122" : "#f6ad5522";
+            const bd    = isRed ? "#fc818144" : "#f6ad5544";
+            const detail = isRed
+              ? `納期超え ${overdueAmt.toLocaleString()}個`
+              : `3日前超え ${bufferAmt.toLocaleString()}個`;
             return (
               <span key={order.id} style={{ background:bg, border:`1px solid ${bd}`, borderRadius:6, padding:"3px 10px", fontSize:12, color }}>
                 {icon} {p?.name}（〆{fmt(order.deadline)}）{detail}
@@ -455,6 +466,7 @@ export default function App() {
             orders={orders} productMap={productMap} remaining={remaining}
             actuals={actuals} today={today}
             manualAssignments={manualAssignments} setManualAssignments={setManualAssignments}
+            overdueQty={overdueQty} bufferQty={bufferQty}
             tooltip={tooltip} setTooltip={setTooltip} />
         )}
         {activeTab==="actuals" && (
@@ -490,7 +502,7 @@ export default function App() {
 // ─── ガントチャート ───────────────────────────────────────────────
 const DAY_W = 56;
 
-function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, manualAssignments, setManualAssignments, tooltip, setTooltip }) {
+function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, manualAssignments, setManualAssignments, overdueQty, bufferQty, tooltip, setTooltip }) {
   // セルクリックで開くモーダル
   const [cellModal, setCellModal] = useState(null);
   // cellModal = { ins, dk, x, y }
@@ -925,13 +937,19 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                   <div key={dk} className={outOfPrintRange2 ? "print-hidden" : ""} style={{ width:DAY_W, minWidth:DAY_W, minHeight:36, borderLeft:"1px solid #2d374822", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"2px 0",
                     background: dk===today?"#0e2330":"transparent" }}>
                     {dls.map((o,i) => {
+                      const isRed    = (overdueQty[o.id]||0) > 0.5;
+                      const isYellow = !isRed && (bufferQty[o.id]||0) > 0.5;
+                      const dotColor = isRed ? "#fc8181" : isYellow ? "#f6ad55" : "#68d391";
                       const rem = remaining[o.id]??0;
-                      const missed = rem > 0.5 && o.deadline < today;
-                      const atRisk = rem > 0.5 && o.deadline >= today;
+                      const label = isRed
+                        ? `🚨 ${productMap[o.productId]?.name} 納期超え${Math.round(overdueQty[o.id]||0)}個`
+                        : isYellow
+                        ? `⚠️ ${productMap[o.productId]?.name} 3日前超え${Math.round(bufferQty[o.id]||0)}個`
+                        : `✅ ${productMap[o.productId]?.name}`;
                       return <div key={i} style={{ width:8, height:8, borderRadius:"50%",
-                        background: missed?"#fc8181": atRisk?"#f6ad55":"#68d391",
+                        background: dotColor,
                         border:`1.5px solid ${productMap[o.productId]?.color||"#fff"}` }}
-                        title={`${productMap[o.productId]?.name} 残${Math.round(rem)}個`} />;
+                        title={label} />;
                     })}
                   </div>
                 );
