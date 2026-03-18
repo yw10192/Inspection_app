@@ -146,7 +146,7 @@ function getActualTotal(actual) {
 // actuals を考慮した2段階スケジュール:
 //   1. today より前の日は actuals を正とする（実績で consumed を計算）
 //   2. today 以降は残量を再スケジュール
-function generateSchedule(inspectors, orders, range, actuals, today) {
+function generateSchedule(inspectors, orders, range, actuals, today, manualAssignments = []) {
   const { start, days } = range;
   const dateKeys = Array.from({ length: days }, (_, i) => toKey(addDays(start, i)));
 
@@ -154,12 +154,28 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
   const remaining = {};
   orders.forEach((o) => { remaining[o.id] = o.quantity; });
 
-  // schedule[iid][dk] = [{orderId, productId, qty, isActual}]
+  // schedule[iid][dk] = [{orderId, productId, qty, isManual, isActual}]
   const schedule = {};
   inspectors.forEach((ins) => {
     schedule[ins.id] = {};
     dateKeys.forEach((dk) => { schedule[ins.id][dk] = []; });
   });
+
+  // 手動割り当てを先に処理（スケジューラの自動計算より優先）
+  const orderMap_s = Object.fromEntries(orders.map(o => [o.id, o]));
+  for (const ma of manualAssignments) {
+    if (!remaining.hasOwnProperty(ma.orderId)) continue;
+    const qty = Math.min(ma.qty, remaining[ma.orderId]);
+    if (qty <= 0) continue;
+    if (!schedule[ma.inspectorId]?.[ma.date]) continue;
+    const order = orderMap_s[ma.orderId];
+    if (!order) continue;
+    schedule[ma.inspectorId][ma.date].push({
+      orderId: ma.orderId, productId: order.productId,
+      qty, isManual: true, isActual: false, isPlanned: false,
+    });
+    remaining[ma.orderId] -= qty;
+  }
 
   const holidayMap = {};
   inspectors.forEach((ins) => {
@@ -264,7 +280,13 @@ function generateSchedule(inspectors, orders, range, actuals, today) {
         }
       } else {
         // 未来日: 同じ製品を連続させながらスケジュール
-        let hoursLeft = availHours;
+        // 手動割り当て済みの時間を先に差し引く
+        const manualTasks = schedule[ins.id][dk].filter(t => t.isManual);
+        const manualHours = manualTasks.reduce((s, t) => {
+          const spd = ins.speedPerProduct[t.productId] || 1;
+          return s + t.qty / spd;
+        }, 0);
+        let hoursLeft = Math.max(0, availHours - manualHours);
         const base = sortedOrders.filter(
           (o) => remaining[o.id] > 0.5 && ins.canInspect.includes(o.productId) && o.deadline >= dk
         );
@@ -308,7 +330,9 @@ export default function App() {
   const [inspectors, setInspectors] = useLocalStorage("ip_inspectors", initInspectors);
   const [orders,     setOrders]     = useLocalStorage("ip_orders", initOrders);
   // actuals: {"I1_2025-01-08": {qty:100, note:"機械トラブル"}}
-  const [actuals,       setActuals]       = useLocalStorage("ip_actuals", {});
+  const [actuals,           setActuals]           = useLocalStorage("ip_actuals", {});
+  // manualAssignments: [{id, date, inspectorId, orderId, qty}]
+  const [manualAssignments, setManualAssignments] = useLocalStorage("ip_manual", []);
 
   const [today, setToday] = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
 
@@ -321,8 +345,8 @@ export default function App() {
 
   const { schedule, remaining, dateKeys } = useMemo(() => {
     const range = calcRange(orders);
-    return generateSchedule(inspectors, orders, range, actuals, today);
-  }, [inspectors, orders, actuals, today]);
+    return generateSchedule(inspectors, orders, range, actuals, today, manualAssignments);
+  }, [inspectors, orders, actuals, today, manualAssignments]);
 
   // 納期アラート: remaining > 0 の注文で today >= deadline
   const alerts = useMemo(() => orders.filter(o => remaining[o.id] > 0.5 && o.deadline < today)
@@ -331,6 +355,7 @@ export default function App() {
   const tabs = [
     { key:"gantt",      label:"📊 ガントチャート" },
     { key:"actuals",    label:"✏️ 実績入力" },
+    { key:"manual",     label:"📋 手動割り当て" },
     { key:"orders",     label:"📦 注文・納期" },
     { key:"inspectors", label:"👷 検査員設定" },
     { key:"products",   label:"🏷️ 製品管理" },
@@ -386,11 +411,18 @@ export default function App() {
           <GanttView inspectors={inspectors} dateKeys={dateKeys} schedule={schedule}
             orders={orders} productMap={productMap} remaining={remaining}
             actuals={actuals} today={today}
+            manualAssignments={manualAssignments} setManualAssignments={setManualAssignments}
             tooltip={tooltip} setTooltip={setTooltip} />
         )}
         {activeTab==="actuals" && (
           <ActualsInput inspectors={inspectors} dateKeys={dateKeys} schedule={schedule}
             orders={orders} productMap={productMap} actuals={actuals} setActuals={setActuals} today={today} />
+        )}
+        {activeTab==="manual" && (
+          <ManualAssignment
+            inspectors={inspectors} orders={orders} productMap={productMap}
+            manualAssignments={manualAssignments} setManualAssignments={setManualAssignments}
+            dateKeys={dateKeys} today={today} />
         )}
         {activeTab==="orders" && (
           <OrderSettings orders={orders} setOrders={setOrders} productMap={productMap} remaining={remaining} today={today} />
@@ -415,7 +447,11 @@ export default function App() {
 // ─── ガントチャート ───────────────────────────────────────────────
 const DAY_W = 56;
 
-function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, tooltip, setTooltip }) {
+function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaining, actuals, today, manualAssignments, setManualAssignments, tooltip, setTooltip }) {
+  // セルクリックで開くモーダル
+  const [cellModal, setCellModal] = useState(null);
+  // cellModal = { ins, dk, x, y }
+
   const [printFrom, setPrintFrom] = useState(dateKeys[0] || "");
   const [printTo,   setPrintTo]   = useState(dateKeys[dateKeys.length-1] || "");
   const [showPrintRange, setShowPrintRange] = useState(false);
@@ -459,6 +495,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
         width:DAY_W, minWidth:DAY_W, height:36, borderLeft:"1px solid #2d374822",
         position:"relative", overflow:"hidden", display:"flex", flexDirection:"column",
         background: isFullHoliday?"#200f0f": isHalfHoliday?"#1a1a0f": isToday?"#0e2330":"transparent",
+        cursor: isFullHoliday ? "default" : "pointer",
       }}
         onMouseEnter={(e) => {
           if (isFullHoliday) { setTooltip({ x:e.clientX, y:e.clientY, content:<div>🏖️ 全休（予定）</div> }); return; }
@@ -482,6 +519,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           )});
         }}
         onMouseLeave={() => setTooltip(null)}
+        onClick={(e) => {
+          if (isFullHoliday) return;
+          e.stopPropagation();
+          setTooltip(null);
+          setCellModal({ ins, dk, x: e.clientX, y: e.clientY });
+        }}
       >
         {isFullHoliday
           ? <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, opacity:0.4 }}>🏖</div>
@@ -490,7 +533,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 const capH = isHalfHoliday ? ins.workHours*0.5 : ins.workHours;
                 const spd = ins.speedPerProduct[t.productId]||1;
                 const pct = Math.min((t.qty/spd/capH)*100, 100);
-                const pName = productMap[t.productId]?.name || "";
+                const pName = (t.isManual ? "📌" : "") + (productMap[t.productId]?.name || "");
                 const o = orderMap[t.orderId];
                 const dlStr = o ? `〆${String(new Date(o.deadline+"T00:00:00").getMonth()+1).padStart(2,"0")}/${String(new Date(o.deadline+"T00:00:00").getDate()).padStart(2,"0")}` : "";
                 return (
@@ -592,8 +635,103 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
     );
   };
 
+  // モーダル用：注文選択state
+  const [modalForm, setModalForm] = useState({ orderId:"", qty:0 });
+
+  const openModal = (ins, dk, x, y) => {
+    const eligible = orders.filter(o => ins.canInspect.includes(o.productId) && remaining[o.id] > 0.5);
+    if (eligible.length === 0) return;
+    const first = eligible.sort((a,b) => new Date(a.deadline)-new Date(b.deadline))[0];
+    setModalForm({ orderId: first?.id || "", qty: first ? Math.round(Math.min(remaining[first.id], ins.speedPerProduct[first.productId] * ins.workHours)) : 0 });
+    setCellModal({ ins, dk, x, y });
+  };
+
+  const addManual = () => {
+    if (!cellModal || !modalForm.orderId || !modalForm.qty) return;
+    const { ins, dk } = cellModal;
+    setManualAssignments(prev => [
+      ...prev,
+      { id:`M${Date.now()}`, date:dk, inspectorId:ins.id, orderId:modalForm.orderId, qty:parseInt(modalForm.qty)||0 }
+    ]);
+    setCellModal(null);
+  };
+
+  const removeManualForCell = (insId, dk) => {
+    setManualAssignments(prev => prev.filter(m => !(m.inspectorId===insId && m.date===dk)));
+  };
+
   return (
-    <div>
+    <div onClick={() => setCellModal(null)}>
+      {/* 手動割り当てモーダル */}
+      {cellModal && (() => {
+        const { ins, dk, x, y } = cellModal;
+        const eligible = orders
+          .filter(o => ins.canInspect.includes(o.productId) && (remaining[o.id] > 0.5 || manualAssignments.some(m=>m.orderId===o.id && m.inspectorId===ins.id && m.date===dk)))
+          .sort((a,b) => new Date(a.deadline)-new Date(b.deadline));
+        const existingManuals = manualAssignments.filter(m => m.inspectorId===ins.id && m.date===dk);
+        // モーダル位置（画面端に収まるよう調整）
+        const mx = Math.min(x, window.innerWidth - 320);
+        const my = Math.min(y, window.innerHeight - 360);
+        return (
+          <div onClick={e=>e.stopPropagation()} style={{
+            position:"fixed", left:mx, top:my, zIndex:10000,
+            background:"#1a1f2e", border:"1px solid #667eea88", borderRadius:12,
+            padding:"16px", width:300, boxShadow:"0 12px 40px rgba(0,0,0,0.7)",
+          }}>
+            <div style={{ fontWeight:700, color:"#a78bfa", marginBottom:4 }}>📌 手動割り当て</div>
+            <div style={{ fontSize:12, color:"#718096", marginBottom:12 }}>{ins.name} — {fmt(dk)}</div>
+
+            {/* 既存の手動割り当て */}
+            {existingManuals.length > 0 && (
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:"#718096", marginBottom:6 }}>設定済み</div>
+                {existingManuals.map(m => {
+                  const o = orders.find(x=>x.id===m.orderId);
+                  const p = productMap[o?.productId];
+                  return (
+                    <div key={m.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 8px", background:"#0f1117", borderRadius:6, marginBottom:4 }}>
+                      <div style={{ width:8, height:8, borderRadius:2, background:p?.color }} />
+                      <span style={{ fontSize:12, flex:1, color:p?.color }}>{p?.name} {m.qty.toLocaleString()}個</span>
+                      <button onClick={()=>setManualAssignments(prev=>prev.filter(x=>x.id!==m.id))}
+                        style={{ background:"none", border:"none", color:"#fc8181", cursor:"pointer", fontSize:14, padding:"0 4px" }}>✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 新規追加フォーム */}
+            <div style={{ fontSize:12, color:"#718096", marginBottom:6 }}>新規追加</div>
+            <div style={{ marginBottom:8 }}>
+              <div style={{ fontSize:11, color:"#718096", marginBottom:4 }}>注文（製品・納期）</div>
+              <select value={modalForm.orderId}
+                onChange={e=>{
+                  const o = orders.find(x=>x.id===e.target.value);
+                  const spd = ins.speedPerProduct[o?.productId] || 1;
+                  const rem = Math.round(Math.min(remaining[e.target.value]||0, spd * ins.workHours));
+                  setModalForm({ orderId:e.target.value, qty: rem });
+                }}
+                style={{ ...S.input, width:"100%", fontSize:12 }}>
+                {eligible.map(o => {
+                  const p = productMap[o.productId];
+                  const rem = Math.round(remaining[o.id]||0);
+                  return <option key={o.id} value={o.id}>{p?.name} 〆{o.deadline} 残{rem.toLocaleString()}個</option>;
+                })}
+              </select>
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11, color:"#718096", marginBottom:4 }}>数量（個）</div>
+              <input type="number" min="1" value={modalForm.qty}
+                onChange={e=>setModalForm(f=>({...f, qty:e.target.value}))}
+                style={{ ...S.input, width:"100%", fontSize:12 }} />
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={addManual} style={{ ...S.btnPrimary, flex:1 }}>追加</button>
+              <button onClick={()=>setCellModal(null)} style={{ ...S.btnSecondary }}>閉じる</button>
+            </div>
+          </div>
+        );
+      })()}
       {/* 印刷コントロール */}
       <div className="no-print" style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
         <button
@@ -768,6 +906,126 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── 手動割り当て ─────────────────────────────────────────────────
+function ManualAssignment({ inspectors, orders, productMap, manualAssignments, setManualAssignments, dateKeys, today }) {
+  const orderMap = Object.fromEntries(orders.map(o => [o.id, o]));
+  const [form, setForm] = useState({
+    date: today, inspectorId: inspectors[0]?.id || "", orderId: orders[0]?.id || "", qty: 100
+  });
+
+  const eligibleInspectors = form.orderId
+    ? inspectors.filter(ins => {
+        const order = orderMap[form.orderId];
+        return order && ins.canInspect.includes(order.productId);
+      })
+    : inspectors;
+
+  const add = () => {
+    if (!form.date || !form.inspectorId || !form.orderId || !form.qty) return;
+    const order = orderMap[form.orderId];
+    if (!order) return;
+    const ins = inspectors.find(i => i.id === form.inspectorId);
+    if (!ins || !ins.canInspect.includes(order.productId)) return;
+    const id = `M${Date.now()}`;
+    setManualAssignments(prev => [...prev, { ...form, id, qty: parseInt(form.qty)||0 }]);
+  };
+
+  const remove = (id) => setManualAssignments(prev => prev.filter(m => m.id !== id));
+
+  // 注文選択が変わったら担当できる最初の検査員に自動セット
+  const handleOrderChange = (orderId) => {
+    const order = orderMap[orderId];
+    const firstEligible = order
+      ? inspectors.find(ins => ins.canInspect.includes(order.productId))
+      : inspectors[0];
+    setForm(f => ({ ...f, orderId, inspectorId: firstEligible?.id || f.inspectorId }));
+  };
+
+  // グループ表示用：注文ごとに手動割り当てをまとめる
+  const grouped = orders.map(o => ({
+    order: o,
+    p: productMap[o.productId],
+    items: manualAssignments.filter(m => m.orderId === o.id)
+  })).filter(g => g.items.length > 0);
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+        <h2 style={{ margin:0, fontSize:18, color:"#f6ad55" }}>📋 手動割り当て</h2>
+        <span style={{ fontSize:12, color:"#718096" }}>手動設定した分は自動スケジュールから除外され、残りが自動で再割り当てされます</span>
+      </div>
+
+      {/* 追加フォーム */}
+      <div style={{ ...S.card, border:"1px solid #f6ad5544", marginBottom:20 }}>
+        <div style={{ fontWeight:700, color:"#f6ad55", marginBottom:12 }}>＋ 割り当て追加</div>
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>日付</div>
+            <input type="date" value={form.date}
+              onChange={e => setForm(f => ({...f, date: e.target.value}))}
+              style={{ ...S.inputDate, width:160 }} />
+          </label>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>注文（製品・納期）</div>
+            <select value={form.orderId}
+              onChange={e => handleOrderChange(e.target.value)}
+              style={{ ...S.input, width:220 }}>
+              {orders.sort((a,b) => new Date(a.deadline)-new Date(b.deadline)).map(o => {
+                const p = productMap[o.productId];
+                return <option key={o.id} value={o.id}>{p?.name} 〆{o.deadline} {o.quantity.toLocaleString()}個</option>;
+              })}
+            </select>
+          </label>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>検査員</div>
+            <select value={form.inspectorId}
+              onChange={e => setForm(f => ({...f, inspectorId: e.target.value}))}
+              style={{ ...S.input, width:160 }}>
+              {eligibleInspectors.map(ins => (
+                <option key={ins.id} value={ins.id}>{ins.name}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>数量（個）</div>
+            <input type="number" min="1" value={form.qty}
+              onChange={e => setForm(f => ({...f, qty: e.target.value}))}
+              style={{ ...S.input, width:110 }} />
+          </label>
+          <button onClick={add} style={{ ...S.btnPrimary, marginBottom:1 }}>追加</button>
+        </div>
+      </div>
+
+      {/* 登録済み一覧 */}
+      {grouped.length === 0 ? (
+        <div style={{ color:"#718096", textAlign:"center", padding:24 }}>手動割り当てはありません</div>
+      ) : (
+        grouped.map(({ order, p, items }) => (
+          <div key={order.id} style={{ ...S.card, border:`1px solid ${p?.color}33`, marginBottom:12 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+              <div style={{ width:12, height:12, borderRadius:3, background:p?.color }} />
+              <span style={{ fontWeight:700, color:p?.color }}>{p?.name}</span>
+              <span style={{ fontSize:12, color:"#718096" }}>〆{order.deadline}　合計 {order.quantity.toLocaleString()}個</span>
+            </div>
+            {items.sort((a,b) => a.date.localeCompare(b.date)).map(m => {
+              const ins = inspectors.find(i => i.id === m.inspectorId);
+              return (
+                <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", background:"#0f111788", borderRadius:6, marginBottom:4 }}>
+                  <span style={{ fontSize:13, color:"#cbd5e0", minWidth:100 }}>📅 {fmt(m.date)}</span>
+                  <span style={{ fontSize:13, color:"#e2e8f0", minWidth:120 }}>👷 {ins?.name||m.inspectorId}</span>
+                  <span style={{ fontSize:13, fontWeight:600, color:"#f6ad55" }}>{m.qty.toLocaleString()}個</span>
+                  <button onClick={() => remove(m.id)}
+                    style={{ ...S.btnDanger, padding:"3px 10px", fontSize:12, marginLeft:"auto" }}>削除</button>
+                </div>
+              );
+            })}
+          </div>
+        ))
+      )}
     </div>
   );
 }
