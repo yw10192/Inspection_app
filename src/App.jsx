@@ -1302,6 +1302,8 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
 // ─── 実績入力 ─────────────────────────────────────────────────────
 function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actuals, setActuals, today }) {
   const [selectedDate, setSelectedDate] = useState(today);
+  // 編集中の一時データ: { aKey: { products:{orderId:qty}, note } }
+  const [drafts, setDrafts] = useState({});
 
   const daySchedule = useMemo(() => {
     return inspectors.map((ins) => {
@@ -1313,19 +1315,45 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
     }).filter(({ plannedQty, actual }) => plannedQty > 0 || getActualTotal(actual) > 0);
   }, [inspectors, schedule, selectedDate, actuals]);
 
-  // 製品別の実績を更新
-  const updateProductQty = (aKey, orderId, value) => {
-    setActuals(prev => {
-      const cur = prev[aKey] || { products:{}, note:"" };
-      const products = { ...(cur.products||{}), [orderId]: value===""?"":parseInt(value)||0 };
-      return { ...prev, [aKey]: { ...cur, products } };
+  // 日付変更時にdraftsをリセット
+  const handleDateChange = (dk) => {
+    setSelectedDate(dk);
+    setDrafts({});
+  };
+
+  // draft の更新（入力中はdraftに保持）
+  const setDraftQty = (aKey, orderId, value) => {
+    setDrafts(prev => {
+      const cur = prev[aKey] || {};
+      return { ...prev, [aKey]: { ...cur, products: { ...(cur.products||{}), [orderId]: value } } };
     });
   };
-  const updateNote = (aKey, value) => {
+  const setDraftNote = (aKey, value) => {
+    setDrafts(prev => ({
+      ...prev,
+      [aKey]: { ...(prev[aKey]||{}), note: value }
+    }));
+  };
+
+  // 入力ボタン: draftをactualsに保存
+  const saveActual = (aKey, actual) => {
+    const draft = drafts[aKey];
+    if (!draft) return;
     setActuals(prev => ({
       ...prev,
-      [aKey]: { ...(prev[aKey]||{products:{},note:""}), note: value }
+      [aKey]: {
+        products: { ...(actual.products||{}), ...(draft.products||{}) },
+        note: draft.note !== undefined ? draft.note : (actual.note||""),
+      }
     }));
+    setDrafts(prev => { const n={...prev}; delete n[aKey]; return n; });
+  };
+
+  // 削除ボタン: その検査員その日の実績を全削除
+  const deleteActual = (aKey) => {
+    if (!window.confirm("この日の実績を削除しますか？")) return;
+    setActuals(prev => { const n={...prev}; delete n[aKey]; return n; });
+    setDrafts(prev => { const n={...prev}; delete n[aKey]; return n; });
   };
 
   const pastDates = dateKeys.filter(dk => dk <= today).reverse();
@@ -1336,12 +1364,12 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
         <h2 style={{ margin:0, fontSize:18, color:"#68d391" }}>✏️ 実績入力</h2>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           <span style={{ fontSize:13, color:"#718096" }}>日付選択:</span>
-          <select value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} style={{ ...S.inputDate, width:160 }}>
+          <select value={selectedDate} onChange={e=>handleDateChange(e.target.value)} style={{ ...S.inputDate, width:160 }}>
             {pastDates.map(dk=><option key={dk} value={dk}>{fmt(dk)}{dk===today?" (今日)":""}</option>)}
           </select>
         </div>
         <div style={{ fontSize:12, color:"#718096" }}>
-          ※ 実績を入力すると残量が自動で翌日以降に再スケジュールされます
+          ※ 入力後「保存」ボタンで確定してください
         </div>
       </div>
 
@@ -1350,41 +1378,65 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
       ) : (
         <div>
           {daySchedule.map(({ ins, tasks, plannedQty, aKey, actual }) => {
-            const products = actual.products || {};
+            const draft = drafts[aKey] || {};
+            const savedProducts = actual.products || {};
+            // 表示値: draftがあればdraft、なければ保存済み
+            const displayProducts = { ...savedProducts, ...(draft.products||{}) };
+            const displayNote = draft.note !== undefined ? draft.note : (actual.note||"");
             const totalActual = getActualTotal(actual);
-            const hasAnyInput = Object.values(products).some(v => v !== "" && v > 0);
-            const isShort = hasAnyInput && totalActual < plannedQty * 0.99;
-            const isOver  = hasAnyInput && totalActual > plannedQty * 1.001;
-            const rate    = hasAnyInput && plannedQty > 0 ? Math.round((totalActual/plannedQty)*100) : null;
-            const multiProduct = tasks.length > 1;
+            const hasSaved = getActualTotal(actual) > 0 || actual.note;
+            const hasDraft = Object.keys(draft).length > 0;
+            // 保存済みの表示用
+            const savedTotal = getActualTotal(actual);
+            const savedRate = savedTotal > 0 && plannedQty > 0 ? Math.round(savedTotal/plannedQty*100) : null;
+            const isShort = hasSaved && savedTotal < plannedQty * 0.99;
+            const isOver  = hasSaved && savedTotal > plannedQty * 1.001;
 
             return (
               <div key={ins.id} style={{ ...S.card, border:`1px solid ${isShort?"#fc818144":isOver?"#68d39144":"#2d374844"}` }}>
-                {/* 検査員名・合計 */}
+                {/* 検査員名・合計・ボタン */}
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, flexWrap:"wrap" }}>
                   <div style={{ fontWeight:700, fontSize:14 }}>{ins.name}</div>
-                  <div style={{ fontSize:12, color:"#718096" }}>予定合計: {plannedQty.toLocaleString()}個</div>
-                  {rate !== null && (
-                    <div style={{ fontSize:18, fontWeight:700, color: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", marginLeft:"auto" }}>
-                      {rate}%
-                      {isShort && <span style={{ fontSize:12, marginLeft:6 }}>⚠️ 未達</span>}
-                      {isOver  && <span style={{ fontSize:12, marginLeft:6 }}>✅ 超過</span>}
+                  <div style={{ fontSize:12, color:"#718096" }}>予定: {plannedQty.toLocaleString()}個</div>
+                  {hasSaved && (
+                    <div style={{ fontSize:13, fontWeight:700, color: isShort?"#fc8181":isOver?"#68d391":"#a78bfa" }}>
+                      実績: {savedTotal.toLocaleString()}個
+                      {savedRate !== null && ` (${savedRate}%)`}
+                      {isShort && " ⚠️ 未達"}
+                      {isOver  && " ✅ 超過"}
                     </div>
                   )}
+                  <div style={{ marginLeft:"auto", display:"flex", gap:8 }}>
+                    {hasDraft && (
+                      <button onClick={() => saveActual(aKey, actual)}
+                        style={{ ...S.btnPrimary, padding:"6px 16px" }}>
+                        💾 保存
+                      </button>
+                    )}
+                    {hasSaved && (
+                      <button onClick={() => deleteActual(aKey)}
+                        style={{ ...S.btnDanger, padding:"6px 12px" }}>
+                        🗑️ 削除
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* 製品別入力（複数製品 or 1製品） */}
+                {/* 製品別入力 */}
                 <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:10 }}>
                   {tasks.map((t) => {
                     const p = productMap[t.productId];
                     const planned = Math.round(t.qty);
-                    const val = products[t.orderId];
+                    const val = displayProducts[t.orderId];
+                    const savedVal = savedProducts[t.orderId];
                     const numVal = parseInt(val)||0;
                     const pShort = val !== undefined && val !== "" && numVal < planned * 0.99;
                     const pOver  = val !== undefined && val !== "" && numVal > planned * 1.001;
+                    const isDirty = draft.products?.[t.orderId] !== undefined;
                     return (
                       <div key={t.orderId} style={{
-                        background:"#0f1117", border:`1px solid ${pShort?"#fc8181":pOver?"#68d391":p?.color+"44"}`,
+                        background:"#0f1117",
+                        border:`1px solid ${pShort?"#fc8181":pOver?"#68d391":isDirty?"#667eea":p?.color+"44"}`,
                         borderRadius:8, padding:"10px 12px", minWidth:160,
                       }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
@@ -1394,9 +1446,9 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                         </div>
                         <input type="number" min="0" placeholder={planned}
                           value={val ?? ""}
-                          onChange={e => updateProductQty(aKey, t.orderId, e.target.value)}
+                          onChange={e => setDraftQty(aKey, t.orderId, e.target.value)}
                           style={{ ...S.input, width:"100%",
-                            borderColor: pShort?"#fc8181":pOver?"#68d391":p?.color+"66" }} />
+                            borderColor: pShort?"#fc8181":pOver?"#68d391":isDirty?"#667eea":p?.color+"66" }} />
                         {val !== undefined && val !== "" && (
                           <div style={{ fontSize:11, marginTop:4, color: pShort?"#fc8181":pOver?"#68d391":"#a78bfa" }}>
                             {Math.round(numVal/planned*100)}%
@@ -1408,25 +1460,26 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                   })}
                 </div>
 
-                {/* 合計達成度バー */}
-                {rate !== null && (
+                {/* 保存済み達成度バー */}
+                {savedRate !== null && (
                   <div style={{ background:"#2d3748", borderRadius:4, height:6, overflow:"hidden", marginBottom:10, maxWidth:400 }}>
-                    <div style={{ width:`${Math.min(rate,100)}%`, height:"100%", background: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", transition:"width 0.3s" }} />
+                    <div style={{ width:`${Math.min(savedRate,100)}%`, height:"100%", background: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", transition:"width 0.3s" }} />
                   </div>
                 )}
 
                 {/* メモ */}
                 <label style={{ fontSize:13, display:"block" }}>
-                  <div style={{ color:"#718096", marginBottom:4 }}>遅延原因・メモ{isShort?" *":"（任意）"}</div>
+                  <div style={{ color:"#718096", marginBottom:4 }}>遅延原因・メモ（任意）</div>
                   <input type="text" placeholder="例: 機械トラブル、材料不足..."
-                    value={actual.note||""}
-                    onChange={e=>updateNote(aKey, e.target.value)}
-                    style={{ ...S.input, width:"100%", maxWidth:400 }} />
+                    value={displayNote}
+                    onChange={e => setDraftNote(aKey, e.target.value)}
+                    style={{ ...S.input, width:"100%", maxWidth:400,
+                      borderColor: draft.note !== undefined ? "#667eea" : "#4a5568" }} />
                 </label>
 
                 {isShort && (
                   <div style={{ marginTop:8, padding:"6px 10px", background:"#2d1515", borderRadius:6, fontSize:12, color:"#fc8181", border:"1px solid #fc818133" }}>
-                    📋 残 {(plannedQty-totalActual).toLocaleString()}個 → 翌日以降に自動再スケジュール
+                    📋 残 {(plannedQty-savedTotal).toLocaleString()}個 → 翌日以降に自動再スケジュール
                   </div>
                 )}
               </div>
