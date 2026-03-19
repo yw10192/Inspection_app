@@ -401,25 +401,34 @@ export default function App() {
     .sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
   [orders, remaining, overdueQty, bufferQty, today]);
 
-  // 在庫不足アラート: 在庫+生産数 < 注文数（製品単位で集計）
+  // 在庫不足アラート: 納期順に在庫を充当して不足する注文をアラート
   const stockAlerts = useMemo(() => {
-    // 製品ごとの生産数合計
     const producedByProduct = {};
     production.forEach(p => {
       producedByProduct[p.productId] = (producedByProduct[p.productId]||0) + (parseInt(p.qty)||0);
     });
-    return orders.filter(o => {
-      const stock    = inventory[o.productId] || 0;
-      const produced = producedByProduct[o.productId] || 0;
-      const available = stock + produced;
-      if (stock === 0 && produced === 0) return false;
-      return available < o.quantity;
-    }).map(o => {
-      const stock    = inventory[o.productId] || 0;
-      const produced = producedByProduct[o.productId] || 0;
-      const shortage = o.quantity - stock - produced;
-      return { order:o, shortage: Math.round(shortage) };
-    }).sort((a,b) => a.order.deadline.localeCompare(b.order.deadline));
+    // 製品ごとに処理
+    const result = [];
+    const productIds = [...new Set(orders.map(o => o.productId))];
+    productIds.forEach(pid => {
+      const stock    = inventory[pid] || 0;
+      const produced = producedByProduct[pid] || 0;
+      if (stock === 0 && produced === 0) return; // 未入力はスキップ
+      let remaining_stock = stock + produced;
+      // 納期順に在庫を充当
+      [...orders]
+        .filter(o => o.productId === pid)
+        .sort((a,b) => new Date(a.deadline) - new Date(b.deadline))
+        .forEach(o => {
+          const used = Math.min(remaining_stock, o.quantity);
+          remaining_stock -= used;
+          const shortage = o.quantity - used;
+          if (shortage > 0) {
+            result.push({ order:o, shortage: Math.round(shortage) });
+          }
+        });
+    });
+    return result.sort((a,b) => a.order.deadline.localeCompare(b.order.deadline));
   }, [orders, inventory, production]);
 
   const tabs = [
