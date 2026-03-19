@@ -54,7 +54,10 @@ function calcRange(orders) {
     return { start: t, days: 30 };
   }
   const dates = orders.map((o) => o.deadline).sort();
-  const start = toKey(addDays(dates[0], -7));
+  // 開始日: 今日 と 最初の納期-7日 の早い方（今日から検査を始める）
+  const todayKey = toKey(new Date());
+  const fromDeadline = toKey(addDays(dates[0], -7));
+  const start = todayKey < fromDeadline ? todayKey : fromDeadline;
   const end   = toKey(addDays(dates[dates.length - 1], 5));
   return { start, days: daysBetween(start, end) + 1 };
 }
