@@ -618,10 +618,14 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
     const outOfPrintRange = dk < printFrom || dk > printTo;
 
-    // このセルのタスクに含まれる注文のアラート判定
+    // このセルの日付と注文の納期を直接比較してアラート判定
+    // 🚨赤: この日付 > 注文の納期（納期超え）
+    // ⚠️黄: この日付 > 注文の納期 - 3日（3日前バッファ超え）
     const cellAlert = tasks.reduce((acc, t) => {
-      if ((overdueQty[t.orderId]||0) > 0.5) return "red";
-      if (acc !== "red" && (bufferQty[t.orderId]||0) > 0.5) return "yellow";
+      const o = orderMap[t.orderId];
+      if (!o) return acc;
+      if (dk > o.deadline) return "red";
+      if (acc !== "red" && dk > toKey(addDays(o.deadline, -3))) return "yellow";
       return acc;
     }, "none");
     // 在庫不足チェック: このセルの日付が在庫不足開始日以降かつそのセルに対象製品タスクあり
