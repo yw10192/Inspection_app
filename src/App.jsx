@@ -249,7 +249,7 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
   }
 
   for (const dk of dateKeys) {
-    const isPast = dk <= today;  // 今日の実績も即反映
+    const isPast = dk < today;
 
     for (const ins of inspectors) {
       const hf = holidayMap[ins.id][dk];
