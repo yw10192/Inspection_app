@@ -363,6 +363,10 @@ export default function App() {
   const [actuals,           setActuals]           = useLocalStorage("ip_actuals", {});
   // manualAssignments: [{id, date, inspectorId, orderId, qty}]
   const [manualAssignments, setManualAssignments] = useLocalStorage("ip_manual", []);
+  // inventory: { productId: qty } 製品ごとの現在庫
+  const [inventory, setInventory] = useLocalStorage("ip_inventory", {});
+  // production: [{id, orderId, qty, date, note}] 生産入力履歴
+  const [production, setProduction] = useLocalStorage("ip_production", []);
 
   const [today, setToday] = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
 
@@ -397,11 +401,28 @@ export default function App() {
     .sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
   [orders, remaining, overdueQty, bufferQty, today]);
 
+  // 在庫不足アラート: 在庫+生産数 < 注文数
+  const stockAlerts = useMemo(() => orders.filter(o => {
+    const stock    = inventory[o.productId] || 0;
+    const produced = production.filter(p => p.orderId === o.id).reduce((s,p) => s+(parseInt(p.qty)||0), 0);
+    const available = stock + produced;
+    // 在庫・生産が全く未入力の場合はアラートしない
+    if (stock === 0 && produced === 0) return false;
+    return available < o.quantity;
+  }).map(o => {
+    const stock    = inventory[o.productId] || 0;
+    const produced = production.filter(p => p.orderId === o.id).reduce((s,p) => s+(parseInt(p.qty)||0), 0);
+    const shortage = o.quantity - stock - produced;
+    return { order:o, shortage: Math.round(shortage) };
+  }).sort((a,b) => a.order.deadline.localeCompare(b.order.deadline)),
+  [orders, inventory, production]);
+
   const tabs = [
     { key:"gantt",      label:"📊 ガントチャート" },
     { key:"actuals",    label:"✏️ 実績入力" },
     { key:"manual",     label:"📋 手動割り当て" },
-    { key:"orders",     label:"📦 注文・納期" },
+    { key:"stock",      label:"📦 在庫・生産" },
+    { key:"orders",     label:"🗒️ 注文・納期" },
     { key:"inspectors", label:"👷 検査員設定" },
     { key:"products",   label:"🏷️ 製品管理" },
   ];
@@ -464,6 +485,18 @@ export default function App() {
         </div>
       )}
 
+      {/* 在庫不足アラートバナー */}
+      {stockAlerts.length > 0 && (
+        <div className="no-print" style={{ background:"#1a1a2e", borderBottom:"1px solid #8b5cf655", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+          <span style={{ color:"#a78bfa", fontWeight:700, fontSize:14 }}>📦 在庫不足 {stockAlerts.length}件</span>
+          {stockAlerts.map(({order, shortage}) => (
+            <span key={order.id} style={{ background:"#8b5cf622", border:"1px solid #8b5cf644", borderRadius:6, padding:"3px 10px", fontSize:12, color:"#a78bfa" }}>
+              {productMap[order.productId]?.name}（〆{fmt(order.deadline)}）不足 {shortage.toLocaleString()}個
+            </span>
+          ))}
+        </div>
+      )}
+
       <div style={{ padding:"20px 24px" }}>
         {activeTab==="gantt" && (
           <GanttView inspectors={inspectors} dateKeys={dateKeys} schedule={schedule}
@@ -482,6 +515,13 @@ export default function App() {
             inspectors={inspectors} orders={orders} productMap={productMap}
             manualAssignments={manualAssignments} setManualAssignments={setManualAssignments}
             dateKeys={dateKeys} today={today} />
+        )}
+        {activeTab==="stock" && (
+          <StockManager
+            products={products} productMap={productMap}
+            orders={orders} inventory={inventory} setInventory={setInventory}
+            production={production} setProduction={setProduction}
+            today={today} />
         )}
         {activeTab==="orders" && (
           <OrderSettings orders={orders} setOrders={setOrders} productMap={productMap} remaining={remaining} today={today} />
@@ -1175,6 +1215,164 @@ function PrintCalendar({ inspectors, dateKeys, schedule, orders, productMap, rem
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── 在庫・生産管理 ──────────────────────────────────────────────
+function StockManager({ products, productMap, orders, inventory, setInventory, production, setProduction, today }) {
+  const [prodForm, setProdForm] = useState({ orderId:"", qty:"", date:today, note:"" });
+
+  // 注文ごとの集計
+  const orderSummary = [...orders].sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map(o => {
+    const p = productMap[o.productId];
+    const stock    = inventory[o.productId] || 0;
+    const produced = production.filter(pr=>pr.orderId===o.id).reduce((s,pr)=>s+(parseInt(pr.qty)||0),0);
+    const available = stock + produced;
+    const shortage  = Math.max(0, o.quantity - available);
+    const enough    = available >= o.quantity;
+    return { order:o, p, stock, produced, available, shortage, enough };
+  });
+
+  const updateStock = (productId, val) => {
+    setInventory(prev => ({ ...prev, [productId]: parseInt(val)||0 }));
+  };
+
+  const addProduction = () => {
+    if (!prodForm.orderId || !prodForm.qty) return;
+    setProduction(prev => [...prev, {
+      id: `PR${Date.now()}`,
+      orderId: prodForm.orderId,
+      qty: parseInt(prodForm.qty)||0,
+      date: prodForm.date,
+      note: prodForm.note,
+    }]);
+    setProdForm(f => ({ ...f, qty:"", note:"" }));
+  };
+
+  const deleteProduction = (id) => {
+    setProduction(prev => prev.filter(p => p.id !== id));
+  };
+
+  // 製品ごとに注文をグループ化
+  const byProduct = products.map(p => ({
+    p,
+    items: orderSummary.filter(s => s.order.productId === p.id),
+  })).filter(g => g.items.length > 0);
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+        <h2 style={{ margin:0, fontSize:18, color:"#06b6d4" }}>📦 在庫・生産管理</h2>
+        <span style={{ fontSize:12, color:"#718096" }}>在庫数を入力すると検査可能数に反映されます</span>
+      </div>
+
+      {/* 製品ごとの在庫・不足サマリー */}
+      {byProduct.map(({ p, items }) => (
+        <div key={p.id} style={{ ...S.card, border:`1px solid ${p.color}33`, marginBottom:16 }}>
+          {/* 製品ヘッダー＋在庫入力 */}
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, flexWrap:"wrap" }}>
+            <div style={{ width:12, height:12, borderRadius:3, background:p.color }} />
+            <span style={{ fontSize:15, fontWeight:700, color:p.color }}>{p.name}</span>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginLeft:"auto" }}>
+              <span style={{ fontSize:13, color:"#718096" }}>現在庫:</span>
+              <input type="number" min="0" value={inventory[p.id] ?? ""}
+                onChange={e => updateStock(p.id, e.target.value)}
+                placeholder="0"
+                style={{ ...S.input, width:100, borderColor:p.color+"66" }} />
+              <span style={{ fontSize:13, color:"#718096" }}>個</span>
+            </div>
+          </div>
+
+          {/* 注文ごとの充足状況 */}
+          {items.map(({ order, stock, produced, available, shortage, enough }) => (
+            <div key={order.id} style={{
+              display:"flex", alignItems:"center", gap:12, padding:"8px 10px",
+              background:"#0f1117", borderRadius:8, marginBottom:6, flexWrap:"wrap",
+              border:`1px solid ${enough?"#68d39133":"#fc818133"}`,
+            }}>
+              <span style={{ fontSize:12, color:"#718096", minWidth:90 }}>〆{fmt(order.deadline)}</span>
+              <span style={{ fontSize:13, color:"#e2e8f0" }}>注文: {order.quantity.toLocaleString()}個</span>
+              <span style={{ fontSize:13, color:"#a0aec0" }}>在庫: {stock.toLocaleString()}個</span>
+              <span style={{ fontSize:13, color:"#68d391" }}>生産済: {produced.toLocaleString()}個</span>
+              <span style={{ fontSize:13, fontWeight:700, color: enough?"#68d391":"#fc8181" }}>
+                {enough ? `✅ 充足（+${(available-order.quantity).toLocaleString()}個）` : `🔴 不足: ${shortage.toLocaleString()}個`}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* 生産入力フォーム */}
+      <div style={{ ...S.card, border:"1px solid #06b6d444", marginBottom:20 }}>
+        <div style={{ fontWeight:700, color:"#06b6d4", marginBottom:12 }}>＋ 生産数入力</div>
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>注文（製品・納期）</div>
+            <select value={prodForm.orderId}
+              onChange={e => setProdForm(f=>({...f, orderId:e.target.value}))}
+              style={{ ...S.input, width:220 }}>
+              <option value="">選択してください</option>
+              {[...orders].sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).map(o => {
+                const p = productMap[o.productId];
+                const produced = production.filter(pr=>pr.orderId===o.id).reduce((s,pr)=>s+(parseInt(pr.qty)||0),0);
+                const stock = inventory[o.productId]||0;
+                const shortage = Math.max(0, o.quantity - stock - produced);
+                return (
+                  <option key={o.id} value={o.id}>
+                    {p?.name} 〆{o.deadline} {shortage>0?`(不足${shortage.toLocaleString()}個)`:""} 
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>生産数（個）</div>
+            <input type="number" min="1" value={prodForm.qty}
+              onChange={e => setProdForm(f=>({...f, qty:e.target.value}))}
+              style={{ ...S.input, width:110 }} />
+          </label>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>日付</div>
+            <input type="date" value={prodForm.date}
+              onChange={e => setProdForm(f=>({...f, date:e.target.value}))}
+              style={{ ...S.inputDate, width:160 }} />
+          </label>
+          <label style={{ fontSize:13 }}>
+            <div style={{ color:"#718096", marginBottom:4 }}>メモ（任意）</div>
+            <input type="text" value={prodForm.note}
+              onChange={e => setProdForm(f=>({...f, note:e.target.value}))}
+              placeholder="ロット番号など"
+              style={{ ...S.input, width:180 }} />
+          </label>
+          <button onClick={addProduction} style={{ ...S.btnPrimary, marginBottom:1 }}>追加</button>
+        </div>
+      </div>
+
+      {/* 生産履歴 */}
+      {production.length > 0 && (
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa", marginBottom:8 }}>生産履歴</div>
+          {[...production].sort((a,b)=>b.date.localeCompare(a.date)).map(pr => {
+            const order = orders.find(o=>o.id===pr.orderId);
+            const p = productMap[order?.productId];
+            return (
+              <div key={pr.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 10px", background:"#1a1f2e", borderRadius:6, marginBottom:4, flexWrap:"wrap" }}>
+                <span style={{ fontSize:12, color:"#718096", minWidth:90 }}>📅 {fmt(pr.date)}</span>
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <div style={{ width:8, height:8, borderRadius:2, background:p?.color }} />
+                  <span style={{ fontSize:13, color:p?.color }}>{p?.name}</span>
+                </div>
+                <span style={{ fontSize:12, color:"#718096" }}>〆{order?.deadline}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:"#68d391" }}>{(parseInt(pr.qty)||0).toLocaleString()}個</span>
+                {pr.note && <span style={{ fontSize:12, color:"#f6ad55" }}>📝 {pr.note}</span>}
+                <button onClick={()=>deleteProduction(pr.id)}
+                  style={{ ...S.btnDanger, padding:"2px 8px", fontSize:11, marginLeft:"auto" }}>削除</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
