@@ -1,4 +1,18 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = "https://pdzqmoxbypkwjiieioju.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkenFtb3hieXBrd2ppaWVpb2p1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMjM2NDgsImV4cCI6MjA4OTU5OTY0OH0.LOMj5IiCLIXBaHPdT_qfXSdA2O3Lji_mn2cZkC8ZGIs";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Supabase読み書きヘルパー
+async function dbGet(key) {
+  const { data } = await supabase.from("inspection_data").select("value").eq("key", key).single();
+  return data?.value ?? null;
+}
+async function dbSet(key, value) {
+  await supabase.from("inspection_data").upsert({ key, value, updated_at: new Date().toISOString() });
+}
 
 // ─── 印刷用スタイル注入 ──────────────────────────────────────────
 const printStyle = `
@@ -14,7 +28,7 @@ const printStyle = `
   }
 `;
 
-// ─── localStorage永続化フック ─────────────────────────────────────
+// ─── localStorage + Supabase同期フック ──────────────────────────
 function useLocalStorage(key, initialValue) {
   const [state, setState] = useState(() => {
     try {
@@ -24,9 +38,25 @@ function useLocalStorage(key, initialValue) {
       return typeof initialValue === "function" ? initialValue() : initialValue;
     }
   });
+
+  // localStorageへの書き込み
   useEffect(() => {
     try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
   }, [key, state]);
+
+  // Supabaseへの書き込み（デバウンス500ms）
+  useEffect(() => {
+    const timer = setTimeout(() => { dbSet(key, state); }, 500);
+    return () => clearTimeout(timer);
+  }, [key, state]);
+
+  // 起動時にSupabaseから読み込み（最新データで上書き）
+  useEffect(() => {
+    dbGet(key).then(val => {
+      if (val !== null) setState(val);
+    });
+  }, [key]);
+
   return [state, setState];
 }
 
