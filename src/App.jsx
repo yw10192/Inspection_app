@@ -372,6 +372,50 @@ export default function App() {
 
   // 起動時に当日の日付をセット
   useEffect(() => { setToday(toKey(new Date())); }, []);
+
+  // ── エクスポート ──────────────────────────────────────────────────
+  const handleExport = () => {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      products, inspectors, orders, actuals, manualAssignments,
+      inventory, production, today,
+    };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type:"application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url;
+    a.download = `inspection_${toKey(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── インポート ──────────────────────────────────────────────────
+  const handleImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.version) throw new Error("不正なファイルです");
+        if (!window.confirm("現在のデータをすべて上書きしますか？エクスポートしていない変更は失われます。")) return;
+        if (data.products)          setProducts(data.products);
+        if (data.inspectors)        setInspectors(data.inspectors);
+        if (data.orders)            setOrders(data.orders);
+        if (data.actuals)           setActuals(data.actuals);
+        if (data.manualAssignments) setManualAssignments(data.manualAssignments);
+        if (data.inventory)         setInventory(data.inventory);
+        if (data.production)        setProduction(data.production);
+        alert("インポートが完了しました。");
+      } catch(err) {
+        alert("読み込みに失敗しました: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // 同じファイルを再度選択できるようリセット
+  };
   const [activeTab,  setActiveTab]  = useState("gantt");
   const [tooltip,    setTooltip]    = useState(null);
 
@@ -455,6 +499,21 @@ export default function App() {
           <span style={{ fontSize:12, color:"#718096" }}>📅 基準日（今日）</span>
           <input type="date" value={today} onChange={e=>setToday(e.target.value)}
             style={{ ...S.inputDate, padding:"3px 8px", fontSize:12, border:"none", background:"transparent", width:"auto" }} />
+        </div>
+        {/* エクスポート・インポート */}
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={handleExport} style={{
+            background:"#2d3748", border:"1px solid #4a5568", borderRadius:7,
+            color:"#a0aec0", padding:"6px 12px", cursor:"pointer", fontSize:12, fontWeight:600,
+          }}>⬇️ エクスポート</button>
+          <label style={{
+            background:"#2d3748", border:"1px solid #4a5568", borderRadius:7,
+            color:"#a0aec0", padding:"6px 12px", cursor:"pointer", fontSize:12, fontWeight:600,
+            display:"flex", alignItems:"center",
+          }}>
+            ⬆️ インポート
+            <input type="file" accept=".json" onChange={handleImport} style={{ display:"none" }} />
+          </label>
         </div>
         <div style={{ flex:1 }} />
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
