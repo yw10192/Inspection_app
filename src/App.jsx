@@ -16,6 +16,42 @@ async function dbSet(key, value) {
 
 // ─── 印刷用スタイル注入 ──────────────────────────────────────────
 const printStyle = `
+  /* ダークテーマ（デフォルト） */
+  :root {
+    --bg-root:    #0f1117;
+    --bg-card:    #1a1f2e;
+    --bg-input:   #1e2535;
+    --bg-header:  linear-gradient(135deg,#1a1f2e,#1e2640);
+    --bg-row0:    #111827;
+    --bg-row1:    #0f1117;
+    --bg-date:    #1a1f2e;
+    --bg-today:   #0e2330;
+    --border:     #2d3748;
+    --border2:    #4a5568;
+    --text-main:  #e2e8f0;
+    --text-sub:   #a0aec0;
+    --text-muted: #718096;
+    --text-faint: #cbd5e0;
+    --color-scheme: dark;
+  }
+  /* ライトテーマ */
+  .light {
+    --bg-root:    #f0f2f7;
+    --bg-card:    #ffffff;
+    --bg-input:   #ffffff;
+    --bg-header:  linear-gradient(135deg,#4a6fa5,#6b8cce);
+    --bg-row0:    #f8f9fc;
+    --bg-row1:    #ffffff;
+    --bg-date:    #eef0f6;
+    --bg-today:   #dbeafe;
+    --border:     #d1d9e6;
+    --border2:    #9aa5b4;
+    --text-main:  #1a202c;
+    --text-sub:   #4a5568;
+    --text-muted: #718096;
+    --text-faint: #2d3748;
+    --color-scheme: light;
+  }
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
     body, .app-root { background: #fff !important; color: #000 !important; }
@@ -370,12 +406,12 @@ function generateSchedule(inspectors, orders, range, actuals, today, manualAssig
 
 // ─── スタイル ─────────────────────────────────────────────────────
 const S = {
-  input:        { background:"#1e2535", border:"1px solid #4a5568", borderRadius:6, color:"#e2e8f0", padding:"6px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" },
-  inputDate:    { background:"#1e2535", border:"1px solid #4a5568", borderRadius:6, color:"#e2e8f0", padding:"6px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box", colorScheme:"dark" },
+  input:        { background:"var(--bg-input)", border:"1px solid var(--border2)", borderRadius:6, color:"var(--text-main)", padding:"6px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" },
+  inputDate:    { background:"var(--bg-input)", border:"1px solid var(--border2)", borderRadius:6, color:"var(--text-main)", padding:"6px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box", colorScheme:"var(--color-scheme)" },
   btnPrimary:   { background:"linear-gradient(135deg,#667eea,#764ba2)", border:"none", borderRadius:7, color:"#fff", padding:"7px 16px", cursor:"pointer", fontSize:13, fontWeight:600 },
-  btnSecondary: { background:"transparent", border:"1px solid #4a5568", borderRadius:7, color:"#a0aec0", padding:"7px 14px", cursor:"pointer", fontSize:13 },
+  btnSecondary: { background:"transparent", border:"1px solid var(--border2)", borderRadius:7, color:"var(--text-sub)", padding:"7px 14px", cursor:"pointer", fontSize:13 },
   btnDanger:    { background:"transparent", border:"1px solid #fc818144", borderRadius:7, color:"#fc8181", padding:"7px 14px", cursor:"pointer", fontSize:13 },
-  card:         { background:"#1a1f2e", borderRadius:10, padding:"14px 16px", border:"1px solid #2d3748", marginBottom:10 },
+  card:         { background:"var(--bg-card)", borderRadius:10, padding:"14px 16px", border:"1px solid var(--border)", marginBottom:10 },
 };
 
 // ─── App ──────────────────────────────────────────────────────────
@@ -397,6 +433,8 @@ export default function App() {
   const [inventory, setInventory] = useLocalStorage("ip_inventory", {});
   // production: [{id, orderId, qty, date, note}] 生産入力履歴
   const [production, setProduction] = useLocalStorage("ip_production", []);
+  // theme: "dark" | "light"
+  const [theme, setTheme] = useLocalStorage("ip_theme", "dark");
 
   const [today, setToday] = useLocalStorage("ip_today", toKey(new Date())); // 運用上の「今日」
 
@@ -516,29 +554,36 @@ export default function App() {
   ];
 
   return (
-    <div className="app-root" style={{ fontFamily:"'Noto Sans JP','Segoe UI',sans-serif", background:"#0f1117", minHeight:"100vh", color:"#e2e8f0" }}>
+    <div className={`app-root${theme === "light" ? " light" : ""}`} style={{ fontFamily:"'Noto Sans JP','Segoe UI',sans-serif", background:"var(--bg-root)", minHeight:"100vh", color:"var(--text-main)" }}>
       {/* Header */}
-      <div className="no-print" style={{ background:"linear-gradient(135deg,#1a1f2e,#1e2640)", borderBottom:"1px solid #2d3748", padding:"14px 24px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", boxShadow:"0 4px 20px rgba(0,0,0,0.4)" }}>
+      <div className="no-print" style={{ background:"var(--bg-header)", borderBottom:"1px solid var(--border)", padding:"14px 24px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", boxShadow:"0 4px 20px rgba(0,0,0,0.4)" }}>
         <div style={{ width:40, height:40, borderRadius:10, background:"linear-gradient(135deg,#667eea,#764ba2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🔍</div>
         <div>
           <div style={{ fontSize:20, fontWeight:700 }}>検査計画システム</div>
           <div style={{ fontSize:12, color:"#718096" }}>Inspection Planning Dashboard</div>
         </div>
         {/* 今日の日付設定 */}
-        <div style={{ display:"flex", alignItems:"center", gap:8, background:"#0f1117", borderRadius:8, padding:"6px 12px", border:"1px solid #4a5568" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, background:"var(--bg-root)", borderRadius:8, padding:"6px 12px", border:"1px solid #4a5568" }}>
           <span style={{ fontSize:12, color:"#718096" }}>📅 基準日（今日）</span>
           <input type="date" value={today} onChange={e=>setToday(e.target.value)}
             style={{ ...S.inputDate, padding:"3px 8px", fontSize:12, border:"none", background:"transparent", width:"auto" }} />
         </div>
+        {/* テーマ切り替え */}
+        <button onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}
+          style={{ background:"var(--bg-card)", border:"1px solid var(--border2)", borderRadius:7,
+            color:"var(--text-sub)", padding:"6px 12px", cursor:"pointer", fontSize:14 }}
+          title={theme === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}>
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
         {/* エクスポート・インポート */}
         <div style={{ display:"flex", gap:8 }}>
           <button onClick={handleExport} style={{
-            background:"#2d3748", border:"1px solid #4a5568", borderRadius:7,
-            color:"#a0aec0", padding:"6px 12px", cursor:"pointer", fontSize:12, fontWeight:600,
+            background:"var(--bg-card)", border:"1px solid var(--border2)", borderRadius:7,
+            color:"var(--text-sub)", padding:"6px 12px", cursor:"pointer", fontSize:12, fontWeight:600,
           }}>⬇️ エクスポート</button>
           <label style={{
-            background:"#2d3748", border:"1px solid #4a5568", borderRadius:7,
-            color:"#a0aec0", padding:"6px 12px", cursor:"pointer", fontSize:12, fontWeight:600,
+            background:"var(--bg-card)", border:"1px solid var(--border2)", borderRadius:7,
+            color:"var(--text-sub)", padding:"6px 12px", cursor:"pointer", fontSize:12, fontWeight:600,
             display:"flex", alignItems:"center",
           }}>
             ⬆️ インポート
@@ -550,7 +595,7 @@ export default function App() {
           {tabs.map((t) => (
             <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
               padding:"8px 14px", borderRadius:8, border:"none", cursor:"pointer", fontSize:13, fontWeight:600,
-              background: activeTab===t.key ? "linear-gradient(135deg,#667eea,#764ba2)" : "#2d3748",
+              background: activeTab===t.key ? "linear-gradient(135deg,#667eea,#764ba2)" : "var(--bg-card)",
               color: activeTab===t.key ? "#fff" : "#a0aec0",
               position:"relative",
             }}>
@@ -948,7 +993,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                   const o = orders.find(x=>x.id===m.orderId);
                   const p = productMap[o?.productId];
                   return (
-                    <div key={m.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 8px", background:"#0f1117", borderRadius:6, marginBottom:4 }}>
+                    <div key={m.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 8px", background:"var(--bg-root)", borderRadius:6, marginBottom:4 }}>
                       <div style={{ width:8, height:8, borderRadius:2, background:p?.color }} />
                       <span style={{ fontSize:12, flex:1, color:p?.color }}>{p?.name} {m.qty.toLocaleString()}個</span>
                       <button onClick={()=>setManualAssignments(prev=>prev.filter(x=>x.id!==m.id))}
@@ -1002,7 +1047,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           style={{ background:"#1e2535", border:"1px solid #4a5568", borderRadius:7, color:"#a0aec0", padding:"7px 14px", cursor:"pointer", fontSize:13 }}
         >🖨️ 印刷設定 {showPrintRange ? "▲" : "▼"}</button>
         {showPrintRange && (
-          <div style={{ background:"#1a1f2e", border:"1px solid #2d3748", borderRadius:8, padding:"14px 16px", marginTop:8 }}>
+          <div style={{ background:"#1a1f2e", border:"1px solid var(--border)", borderRadius:8, padding:"14px 16px", marginTop:8 }}>
             <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end", marginBottom:12 }}>
               <label style={{ fontSize:13 }}>
                 <div style={{ color:"#718096", marginBottom:4 }}>開始日</div>
@@ -1070,10 +1115,10 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
 
       </div>
 
-      <div className="screen-only" style={{ overflowX:"auto", borderRadius:12, border:"1px solid #2d3748" }}>
+      <div className="screen-only" style={{ overflowX:"auto", borderRadius:12, border:"1px solid var(--border)" }}>
         <div style={{ minWidth: dateKeys.length * DAY_W + 190 }}>
           {/* 日付ヘッダー */}
-          <div style={{ display:"flex", background:"#1a1f2e", borderBottom:"1px solid #2d3748" }}>
+          <div style={{ display:"flex", background:"var(--bg-date)", borderBottom:"1px solid var(--border)" }}>
             <div style={{ width:190, minWidth:190, padding:"10px 12px", fontSize:12, color:"#718096", fontWeight:700 }}>検査員</div>
             <div style={{ display:"flex" }}>
               {dateKeys.map((dk) => {
@@ -1107,7 +1152,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
               <div key={ins.id} style={{ borderBottom:"2px solid #2d3748" }}>
                 {/* 予定行 */}
                 <div style={{ display:"flex", background:bg }}>
-                  <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid #2d3748", display:"flex", alignItems:"center" }}>
+                  <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid var(--border)", display:"flex", alignItems:"center" }}>
                     <div>
                       <div style={{ fontSize:13, fontWeight:600 }}>{ins.name}</div>
                       <div style={{ fontSize:10, color:"#718096" }}>{ins.workHours}h/日</div>
@@ -1120,7 +1165,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 </div>
                 {/* 実績行 */}
                 <div className="no-print" style={{ display:"flex", background: idx%2===0?"#0d1117":"#0a0d12", borderTop:"1px solid #2d374855" }}>
-                  <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid #2d3748", display:"flex", alignItems:"center" }}>
+                  <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid var(--border)", display:"flex", alignItems:"center" }}>
                     <div style={{ fontSize:10, color:"#68d391", fontWeight:700, background:"#68d39122", borderRadius:4, padding:"2px 6px", marginLeft:"auto" }}>実績</div>
                   </div>
                   <div style={{ display:"flex" }}>
@@ -1153,7 +1198,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             const statusIcon  = isRed?"🚨" : isYellow?"⚠️" : "✅";
             const statusText  = isRed?"納期超え割当あり" : isYellow?"3日前超え割当あり" : "スケジュール順調";
             return (
-              <div key={o.id} style={{ background:"#1a1f2e", borderRadius:10, padding:"12px 14px", border:`1px solid ${borderColor}` }}>
+              <div key={o.id} style={{ background:"var(--bg-card)", borderRadius:10, padding:"12px 14px", border:`1px solid ${borderColor}` }}>
                 {/* ヘッダー */}
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
                   <div style={{ width:10, height:10, borderRadius:2, background:p?.color, flexShrink:0 }} />
@@ -1456,7 +1501,7 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
           {orderStatus.map(({ order, used, short, enough: ordEnough }) => (
             <div key={order.id} style={{
               display:"flex", alignItems:"center", gap:10, padding:"5px 8px",
-              background:"#0f1117", borderRadius:6, marginBottom:4, flexWrap:"wrap",
+              background:"var(--bg-root)", borderRadius:6, marginBottom:4, flexWrap:"wrap",
               border:`1px solid ${ordEnough?"#68d39122":"#fc818133"}`,
             }}>
               <span style={{ fontSize:12, color:"#718096", minWidth:80 }}>〆{fmt(order.deadline)}</span>
@@ -1790,7 +1835,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                     const isDirty = draft.products?.[t.orderId] !== undefined;
                     return (
                       <div key={t.orderId} style={{
-                        background:"#0f1117",
+                        background:"var(--bg-root)",
                         border:`1px solid ${pShort?"#fc8181":pOver?"#68d391":isDirty?"#667eea":p?.color+"44"}`,
                         borderRadius:8, padding:"10px 12px", minWidth:160,
                       }}>
@@ -1852,7 +1897,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
               <thead>
                 <tr style={{ background:"#1a1f2e" }}>
                   {["日付","検査員","製品別実績","合計","達成率","メモ"].map(h=>(
-                    <th key={h} style={{ padding:"8px 12px", color:"#718096", textAlign:"left", borderBottom:"1px solid #2d3748" }}>{h}</th>
+                    <th key={h} style={{ padding:"8px 12px", color:"#718096", textAlign:"left", borderBottom:"1px solid var(--border)" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
