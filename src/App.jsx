@@ -43,6 +43,10 @@ const printStyle = `
     --text-muted:    #718096;
     --text-faint:    #cbd5e0;
     --color-scheme:  dark;
+    --bg-chip:       #2d3748;
+    --bg-progress:   #2d3748;
+    --bg-item:       #0f111788;
+    --bg-modal:      #1a1f2e;
   }
   /* ライトテーマ */
   .light {
@@ -71,6 +75,10 @@ const printStyle = `
     --text-muted:    #718096;
     --text-faint:    #2d3748;
     --color-scheme:  light;
+    --bg-chip:       #eef0f6;
+    --bg-progress:   #e2e8f0;
+    --bg-item:       #f0f2f7aa;
+    --bg-modal:      #ffffff;
   }
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
@@ -923,7 +931,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
         {isFullHoliday ? (
           <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, opacity:0.4 }}>🏖</div>
         ) : !isPast && !isToday ? (
-          <div style={{ flex:1, background:"repeating-linear-gradient(45deg,#1a1f2e 0,#1a1f2e 4px,#111827 4px,#111827 8px)", opacity:0.4 }} />
+          <div style={{ flex:1, background:"repeating-linear-gradient(45deg,var(--bg-card) 0,var(--bg-card) 4px,var(--bg-row0) 4px,var(--bg-row0) 8px)", opacity:0.4 }} />
         ) : hasActual ? (
           <>
             {/* 実績バー：製品色で塗る（按分） */}
@@ -999,7 +1007,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
         return (
           <div onClick={e=>e.stopPropagation()} style={{
             position:"fixed", left:mx, top:my, zIndex:10000,
-            background:"#1a1f2e", border:"1px solid #667eea88", borderRadius:12,
+            background:"var(--bg-modal)", border:"1px solid #667eea88", borderRadius:12,
             padding:"16px", width:300, boxShadow:"0 12px 40px rgba(0,0,0,0.7)",
           }}>
             <div style={{ fontWeight:700, color:"#a78bfa", marginBottom:4 }}>📌 手動割り当て</div>
@@ -1064,10 +1072,10 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
       <div className="no-print" style={{ marginBottom:12 }}>
         <button
           onClick={() => setShowPrintRange(v => !v)}
-          style={{ background:"#1e2535", border:"1px solid #4a5568", borderRadius:7, color:"var(--text-sub)", padding:"7px 14px", cursor:"pointer", fontSize:13 }}
+          style={{ background:"var(--bg-input)", border:"1px solid var(--border2)", borderRadius:7, color:"var(--text-main)", padding:"7px 14px", cursor:"pointer", fontSize:13 }}
         >🖨️ 印刷設定 {showPrintRange ? "▲" : "▼"}</button>
         {showPrintRange && (
-          <div style={{ background:"#1a1f2e", border:"1px solid var(--border)", borderRadius:8, padding:"14px 16px", marginTop:8 }}>
+          <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:8, padding:"14px 16px", marginTop:8 }}>
             <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end", marginBottom:12 }}>
               <label style={{ fontSize:13 }}>
                 <div style={{ color:"var(--text-muted)", marginBottom:4 }}>開始日</div>
@@ -1084,15 +1092,15 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
               <div style={{ fontSize:13, color:"var(--text-muted)", marginBottom:6 }}>印刷する検査員</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                 <button onClick={()=>setPrintInspectors(inspectors.map(i=>i.id))}
-                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid #4a5568", background:"#2d3748", color:"var(--text-sub)", cursor:"pointer" }}>全員</button>
+                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid var(--border2)", background:"var(--bg-chip)", color:"var(--text-main)", cursor:"pointer" }}>全員</button>
                 <button onClick={()=>setPrintInspectors([])}
-                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid #4a5568", background:"#2d3748", color:"var(--text-sub)", cursor:"pointer" }}>クリア</button>
+                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid var(--border2)", background:"var(--bg-chip)", color:"var(--text-main)", cursor:"pointer" }}>クリア</button>
                 {inspectors.map(ins=>(
                   <button key={ins.id}
                     onClick={()=>setPrintInspectors(prev=>prev.includes(ins.id)?prev.filter(x=>x!==ins.id):[...prev,ins.id])}
                     style={{ fontSize:12, padding:"3px 10px", borderRadius:5, cursor:"pointer",
-                      border: printInspectors.includes(ins.id)?"1px solid #667eea":"1px solid #4a5568",
-                      background: printInspectors.includes(ins.id)?"#667eea33":"transparent",
+                      border: printInspectors.includes(ins.id)?"1px solid #667eea":"1px solid var(--border2)",
+                      background: printInspectors.includes(ins.id)?"#667eea33":"var(--bg-chip)",
                       color: printInspectors.includes(ins.id)?"#a78bfa":"#a0aec0",
                     }}>{ins.name}</button>
                 ))}
@@ -1108,27 +1116,27 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
       {/* 凡例（画面のみ） */}
       <div className="screen-only" style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
         {Object.values(productMap).map((p) => (
-          <div key={p.id} style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px", border:`1px solid ${p.color}44` }}>
+          <div key={p.id} style={{ display:"flex", alignItems:"center", gap:6, background:"var(--bg-chip)", borderRadius:6, padding:"4px 10px", border:`1px solid ${p.color}44` }}>
             <div style={{ width:10, height:10, borderRadius:2, background:p.color }} />
             <span style={{ fontSize:12, color:"var(--text-faint)" }}>{p.name}</span>
           </div>
         ))}
-        <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, background:"var(--bg-chip)", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
             <div style={{ width:14, height:7, background:"#8b5cf644", border:"1px solid #8b5cf6" }} />
             <div style={{ width:14, height:7, background:"#8b5cf6aa" }} />
           </div>
           <span style={{ fontSize:12, color:"var(--text-faint)" }}>上:予定 / 下:実績</span>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, background:"var(--bg-chip)", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ width:14, height:14, background:"repeating-linear-gradient(45deg,#fc818166 0,#fc818166 3px,transparent 3px,transparent 6px)", border:"1px solid #fc8181" }} />
           <span style={{ fontSize:12, color:"var(--text-faint)" }}>未達</span>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, background:"var(--bg-chip)", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ width:2, height:14, background:"#f6ad55" }} />
           <span style={{ fontSize:12, color:"var(--text-faint)" }}>納期</span>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, background:"var(--bg-chip)", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ width:2, height:14, background:"#67e8f9" }} />
           <span style={{ fontSize:12, color:"var(--text-faint)" }}>今日</span>
         </div>
@@ -1232,7 +1240,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                   <span style={{ fontSize:18, fontWeight:700, color: actPct>=100?"#68d391":"#a78bfa", marginLeft:"auto" }}>{actPct}%</span>
                 </div>
                 {/* プログレスバー */}
-                <div style={{ background:"#2d3748", borderRadius:4, height:6, overflow:"hidden", marginBottom:6 }}>
+                <div style={{ background:"var(--bg-progress)", borderRadius:4, height:6, overflow:"hidden", marginBottom:6 }}>
                   <div style={{ width:`${actPct}%`, height:"100%", background: actPct>=100?"#68d391":p?.color, transition:"width 0.3s" }} />
                 </div>
                 {/* スケジュールステータス */}
@@ -1580,7 +1588,7 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
           {[...production].sort((a,b)=>b.date.localeCompare(a.date)).map(pr => {
             const p = productMap[pr.productId];
             return (
-              <div key={pr.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 10px", background:"#1a1f2e", borderRadius:6, marginBottom:4, flexWrap:"wrap" }}>
+              <div key={pr.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 10px", background:"var(--bg-card)", borderRadius:6, marginBottom:4, flexWrap:"wrap" }}>
                 <span style={{ fontSize:12, color:"var(--text-muted)", minWidth:90 }}>📅 {fmt(pr.date)}</span>
                 <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                   <div style={{ width:8, height:8, borderRadius:2, background:p?.color }} />
@@ -1703,7 +1711,7 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
             {items.sort((a,b) => a.date.localeCompare(b.date)).map(m => {
               const ins = inspectors.find(i => i.id === m.inspectorId);
               return (
-                <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", background:"#0f111788", borderRadius:6, marginBottom:4 }}>
+                <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", background:"var(--bg-item)", borderRadius:6, marginBottom:4 }}>
                   <span style={{ fontSize:13, color:"var(--text-faint)", minWidth:100 }}>📅 {fmt(m.date)}</span>
                   <span style={{ fontSize:13, color:"var(--text-main)", minWidth:120 }}>👷 {ins?.name||m.inspectorId}</span>
                   <span style={{ fontSize:13, fontWeight:600, color:"#f6ad55" }}>{m.qty.toLocaleString()}個</span>
@@ -1882,7 +1890,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
 
                 {/* 保存済み達成度バー */}
                 {savedRate !== null && (
-                  <div style={{ background:"#2d3748", borderRadius:4, height:6, overflow:"hidden", marginBottom:10, maxWidth:400 }}>
+                  <div style={{ background:"var(--bg-progress)", borderRadius:4, height:6, overflow:"hidden", marginBottom:10, maxWidth:400 }}>
                     <div style={{ width:`${Math.min(savedRate,100)}%`, height:"100%", background: isShort?"#fc8181":isOver?"#68d391":"#a78bfa", transition:"width 0.3s" }} />
                   </div>
                 )}
@@ -1915,7 +1923,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
           <div style={{ overflowX:"auto" }}>
             <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12 }}>
               <thead>
-                <tr style={{ background:"#1a1f2e" }}>
+                <tr style={{ background:"var(--bg-card)" }}>
                   {["日付","検査員","製品別実績","合計","達成率","メモ"].map(h=>(
                     <th key={h} style={{ padding:"8px 12px", color:"var(--text-muted)", textAlign:"left", borderBottom:"1px solid var(--border)" }}>{h}</th>
                   ))}
@@ -2098,7 +2106,7 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
               const missed = rem>0.5 && o.deadline<today;
               const atRisk = rem>0.5 && o.deadline>=today;
               return (
-                <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", borderRadius:6, marginBottom:4, background:"#0f111788" }}>
+                <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", borderRadius:6, marginBottom:4, background:"var(--bg-item)" }}>
                   <span style={{ fontSize:13, color:"var(--text-faint)", minWidth:100 }}>📅 {fmt(o.deadline)}</span>
                   <span style={{ fontSize:13, color:"var(--text-main)", minWidth:90 }}>{o.quantity.toLocaleString()}個</span>
                   <span style={{ fontSize:12, fontWeight:600, flex:1, color:missed?"#fc8181":atRisk?"#f6ad55":"#68d391" }}>
