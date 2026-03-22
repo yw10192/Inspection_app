@@ -18,39 +18,59 @@ async function dbSet(key, value) {
 const printStyle = `
   /* ダークテーマ（デフォルト） */
   :root {
-    --bg-root:    #0f1117;
-    --bg-card:    #1a1f2e;
-    --bg-input:   #1e2535;
-    --bg-header:  linear-gradient(135deg,#1a1f2e,#1e2640);
-    --bg-row0:    #111827;
-    --bg-row1:    #0f1117;
-    --bg-date:    #1a1f2e;
-    --bg-today:   #0e2330;
-    --border:     #2d3748;
-    --border2:    #4a5568;
-    --text-main:  #e2e8f0;
-    --text-sub:   #a0aec0;
-    --text-muted: #718096;
-    --text-faint: #cbd5e0;
-    --color-scheme: dark;
+    --bg-root:       #0f1117;
+    --bg-card:       #1a1f2e;
+    --bg-input:      #1e2535;
+    --bg-header:     linear-gradient(135deg,#1a1f2e,#1e2640);
+    --bg-row0:       #111827;
+    --bg-row1:       #0f1117;
+    --bg-row-actual: #0d1117;
+    --bg-row-actual2:#0a0d12;
+    --bg-date:       #1a1f2e;
+    --bg-today-cell: #0e2330;
+    --bg-holiday:    #200f0f;
+    --bg-half-hol:   #1a1a0f;
+    --bg-actual-ok:  #0e111a;
+    --bg-actual-short:#1a0e0e;
+    --bg-actual-over: #0e1a0e;
+    --bg-actual-future:#181818;
+    --bg-alert-red:  #2d1515;
+    --bg-chip-off:   #0f1117;
+    --border:        #2d3748;
+    --border2:       #4a5568;
+    --text-main:     #e2e8f0;
+    --text-sub:      #a0aec0;
+    --text-muted:    #718096;
+    --text-faint:    #cbd5e0;
+    --color-scheme:  dark;
   }
   /* ライトテーマ */
   .light {
-    --bg-root:    #f0f2f7;
-    --bg-card:    #ffffff;
-    --bg-input:   #ffffff;
-    --bg-header:  linear-gradient(135deg,#4a6fa5,#6b8cce);
-    --bg-row0:    #f8f9fc;
-    --bg-row1:    #ffffff;
-    --bg-date:    #eef0f6;
-    --bg-today:   #dbeafe;
-    --border:     #d1d9e6;
-    --border2:    #9aa5b4;
-    --text-main:  #1a202c;
-    --text-sub:   #4a5568;
-    --text-muted: #718096;
-    --text-faint: #2d3748;
-    --color-scheme: light;
+    --bg-root:       #f0f2f7;
+    --bg-card:       #ffffff;
+    --bg-input:      #ffffff;
+    --bg-header:     linear-gradient(135deg,#4a6fa5,#6b8cce);
+    --bg-row0:       #f5f7fb;
+    --bg-row1:       #ffffff;
+    --bg-row-actual: #eef1f8;
+    --bg-row-actual2:#e8ecf5;
+    --bg-date:       #eef0f6;
+    --bg-today-cell: #dbeafe;
+    --bg-holiday:    #fde8e8;
+    --bg-half-hol:   #fefce8;
+    --bg-actual-ok:  #f0f4ff;
+    --bg-actual-short:#fff0f0;
+    --bg-actual-over: #f0fff4;
+    --bg-actual-future:#f4f6fb;
+    --bg-alert-red:  #fff0f0;
+    --bg-chip-off:   #f0f2f7;
+    --border:        #d1d9e6;
+    --border2:       #9aa5b4;
+    --text-main:     #1a202c;
+    --text-sub:      #4a5568;
+    --text-muted:    #718096;
+    --text-faint:    #2d3748;
+    --color-scheme:  light;
   }
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
@@ -560,11 +580,11 @@ export default function App() {
         <div style={{ width:40, height:40, borderRadius:10, background:"linear-gradient(135deg,#667eea,#764ba2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🔍</div>
         <div>
           <div style={{ fontSize:20, fontWeight:700 }}>検査計画システム</div>
-          <div style={{ fontSize:12, color:"#718096" }}>Inspection Planning Dashboard</div>
+          <div style={{ fontSize:12, color:"var(--text-muted)" }}>Inspection Planning Dashboard</div>
         </div>
         {/* 今日の日付設定 */}
         <div style={{ display:"flex", alignItems:"center", gap:8, background:"var(--bg-root)", borderRadius:8, padding:"6px 12px", border:"1px solid #4a5568" }}>
-          <span style={{ fontSize:12, color:"#718096" }}>📅 基準日（今日）</span>
+          <span style={{ fontSize:12, color:"var(--text-muted)" }}>📅 基準日（今日）</span>
           <input type="date" value={today} onChange={e=>setToday(e.target.value)}
             style={{ ...S.inputDate, padding:"3px 8px", fontSize:12, border:"none", background:"transparent", width:"auto" }} />
         </div>
@@ -610,7 +630,7 @@ export default function App() {
 
       {/* 納期アラートバナー */}
       {alerts.length > 0 && (
-        <div className="no-print" style={{ background:"#2d1515", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+        <div className="no-print" style={{ background:"var(--bg-alert-red)", borderBottom:"1px solid #fc818155", padding:"10px 24px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
           <span style={{ color:"#fc8181", fontWeight:700, fontSize:14 }}>
             {alerts.filter(a=>a.isRed).length > 0 && `🚨 納期超え ${alerts.filter(a=>a.isRed).length}件　`}
             {alerts.filter(a=>a.isYellow).length > 0 && `⚠️ バッファ超え ${alerts.filter(a=>a.isYellow).length}件`}
@@ -782,7 +802,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
       <div className={outOfPrintRange ? "print-hidden" : ""} style={{
         width:DAY_W, minWidth:DAY_W, height:36, borderLeft:"1px solid #2d374822",
         position:"relative", overflow:"hidden", display:"flex", flexDirection:"column",
-        background: isFullHoliday?"#200f0f": isHalfHoliday?"#1a1a0f": isToday?"#0e2330":"transparent",
+        background: isFullHoliday?"var(--bg-holiday)": isHalfHoliday?"var(--bg-half-hol)": isToday?"var(--bg-today-cell)":"transparent",
         cursor: isFullHoliday ? "default" : "pointer",
       }}
         onMouseEnter={(e) => {
@@ -791,18 +811,18 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           setTooltip({ x:e.clientX, y:e.clientY, content:(
             <div>
               <div style={{ fontWeight:700, marginBottom:6, color:"#a78bfa" }}>{ins.name} — {fmt(dk)}</div>
-              <div style={{ fontSize:11, color:"#718096", marginBottom:6 }}>📋 予定</div>
+              <div style={{ fontSize:11, color:"var(--text-muted)", marginBottom:6 }}>📋 予定</div>
               {isHalfHoliday && <div style={{ color:"#f6ad55", fontSize:11, marginBottom:4 }}>🌅 半休</div>}
               {tasks.map((t,i) => {
                 const o = orderMap[t.orderId];
                 return (
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
                     <div style={{ width:8, height:8, borderRadius:2, background:productMap[t.productId]?.color, flexShrink:0 }} />
-                    <span>{productMap[t.productId]?.name}: {Math.round(t.qty)}個 <span style={{ color:"#718096", fontSize:11 }}>〆{fmt(o?.deadline)}</span></span>
+                    <span>{productMap[t.productId]?.name}: {Math.round(t.qty)}個 <span style={{ color:"var(--text-muted)", fontSize:11 }}>〆{fmt(o?.deadline)}</span></span>
                   </div>
                 );
               })}
-              <div style={{ borderTop:"1px solid #4a5568", paddingTop:4, marginTop:4, color:"#a0aec0" }}>合計: {totalQty}個</div>
+              <div style={{ borderTop:"1px solid #4a5568", paddingTop:4, marginTop:4, color:"var(--text-sub)" }}>合計: {totalQty}個</div>
             </div>
           )});
         }}
@@ -872,18 +892,18 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
       <div className={outOfPrintRange ? "print-hidden" : ""} style={{
         width:DAY_W, minWidth:DAY_W, height:36, borderLeft:"1px solid #2d374822",
         position:"relative", overflow:"hidden", display:"flex", flexDirection:"column",
-        background: isFullHoliday?"#200f0f": !isPast && !isToday?"#181818":
-          isShortfall?"#1a0e0e": isOver?"#0e1a0e":"#0e111a",
+        background: isFullHoliday?"var(--bg-holiday)": !isPast && !isToday?"var(--bg-actual-future)":
+          isShortfall?"var(--bg-actual-short)": isOver?"var(--bg-actual-over)":"var(--bg-actual-ok)",
       }}
         onMouseEnter={(e) => {
           if (isFullHoliday) { setTooltip({ x:e.clientX, y:e.clientY, content:<div>🏖️ 全休</div> }); return; }
-          if (!isPast && !isToday) { setTooltip({ x:e.clientX, y:e.clientY, content:<div style={{ color:"#718096", fontSize:12 }}>未来日（実績なし）</div> }); return; }
+          if (!isPast && !isToday) { setTooltip({ x:e.clientX, y:e.clientY, content:<div style={{ color:"var(--text-muted)", fontSize:12 }}>未来日（実績なし）</div> }); return; }
           setTooltip({ x:e.clientX, y:e.clientY, content:(
             <div>
               <div style={{ fontWeight:700, marginBottom:6, color:"#a78bfa" }}>{ins.name} — {fmt(dk)}</div>
               <div style={{ fontSize:11, color:"#68d391", marginBottom:6 }}>✏️ 実績</div>
               {isHalfHoliday && <div style={{ color:"#f6ad55", fontSize:11, marginBottom:4 }}>🌅 半休</div>}
-              <div style={{ color:"#a0aec0" }}>予定: {plannedQty}個</div>
+              <div style={{ color:"var(--text-sub)" }}>予定: {plannedQty}個</div>
               {hasActual ? (
                 <>
                   <div style={{ color:isShortfall?"#fc8181":isOver?"#68d391":"#e2e8f0", fontWeight:600 }}>
@@ -983,12 +1003,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             padding:"16px", width:300, boxShadow:"0 12px 40px rgba(0,0,0,0.7)",
           }}>
             <div style={{ fontWeight:700, color:"#a78bfa", marginBottom:4 }}>📌 手動割り当て</div>
-            <div style={{ fontSize:12, color:"#718096", marginBottom:12 }}>{ins.name} — {fmt(dk)}</div>
+            <div style={{ fontSize:12, color:"var(--text-muted)", marginBottom:12 }}>{ins.name} — {fmt(dk)}</div>
 
             {/* 既存の手動割り当て */}
             {existingManuals.length > 0 && (
               <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:"#718096", marginBottom:6 }}>設定済み</div>
+                <div style={{ fontSize:11, color:"var(--text-muted)", marginBottom:6 }}>設定済み</div>
                 {existingManuals.map(m => {
                   const o = orders.find(x=>x.id===m.orderId);
                   const p = productMap[o?.productId];
@@ -1005,9 +1025,9 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             )}
 
             {/* 新規追加フォーム */}
-            <div style={{ fontSize:12, color:"#718096", marginBottom:6 }}>新規追加</div>
+            <div style={{ fontSize:12, color:"var(--text-muted)", marginBottom:6 }}>新規追加</div>
             <div style={{ marginBottom:8 }}>
-              <div style={{ fontSize:11, color:"#718096", marginBottom:4 }}>注文（製品・納期）</div>
+              <div style={{ fontSize:11, color:"var(--text-muted)", marginBottom:4 }}>注文（製品・納期）</div>
               <select value={modalForm.orderId}
                 onChange={e=>{
                   const o = orders.find(x=>x.id===e.target.value);
@@ -1028,7 +1048,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
               </select>
             </div>
             <div style={{ marginBottom:12 }}>
-              <div style={{ fontSize:11, color:"#718096", marginBottom:4 }}>数量（個）</div>
+              <div style={{ fontSize:11, color:"var(--text-muted)", marginBottom:4 }}>数量（個）</div>
               <input type="number" min="1" value={modalForm.qty}
                 onChange={e=>setModalForm(f=>({...f, qty:e.target.value}))}
                 style={{ ...S.input, width:"100%", fontSize:12 }} />
@@ -1044,29 +1064,29 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
       <div className="no-print" style={{ marginBottom:12 }}>
         <button
           onClick={() => setShowPrintRange(v => !v)}
-          style={{ background:"#1e2535", border:"1px solid #4a5568", borderRadius:7, color:"#a0aec0", padding:"7px 14px", cursor:"pointer", fontSize:13 }}
+          style={{ background:"#1e2535", border:"1px solid #4a5568", borderRadius:7, color:"var(--text-sub)", padding:"7px 14px", cursor:"pointer", fontSize:13 }}
         >🖨️ 印刷設定 {showPrintRange ? "▲" : "▼"}</button>
         {showPrintRange && (
           <div style={{ background:"#1a1f2e", border:"1px solid var(--border)", borderRadius:8, padding:"14px 16px", marginTop:8 }}>
             <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end", marginBottom:12 }}>
               <label style={{ fontSize:13 }}>
-                <div style={{ color:"#718096", marginBottom:4 }}>開始日</div>
+                <div style={{ color:"var(--text-muted)", marginBottom:4 }}>開始日</div>
                 <input type="date" value={printFrom} onChange={e => setPrintFrom(e.target.value)}
                   style={{ ...S.inputDate, width:150 }} />
               </label>
               <label style={{ fontSize:13 }}>
-                <div style={{ color:"#718096", marginBottom:4 }}>終了日</div>
+                <div style={{ color:"var(--text-muted)", marginBottom:4 }}>終了日</div>
                 <input type="date" value={printTo} onChange={e => setPrintTo(e.target.value)}
                   style={{ ...S.inputDate, width:150 }} />
               </label>
             </div>
             <div style={{ marginBottom:10 }}>
-              <div style={{ fontSize:13, color:"#718096", marginBottom:6 }}>印刷する検査員</div>
+              <div style={{ fontSize:13, color:"var(--text-muted)", marginBottom:6 }}>印刷する検査員</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                 <button onClick={()=>setPrintInspectors(inspectors.map(i=>i.id))}
-                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid #4a5568", background:"#2d3748", color:"#a0aec0", cursor:"pointer" }}>全員</button>
+                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid #4a5568", background:"#2d3748", color:"var(--text-sub)", cursor:"pointer" }}>全員</button>
                 <button onClick={()=>setPrintInspectors([])}
-                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid #4a5568", background:"#2d3748", color:"#a0aec0", cursor:"pointer" }}>クリア</button>
+                  style={{ fontSize:12, padding:"3px 10px", borderRadius:5, border:"1px solid #4a5568", background:"#2d3748", color:"var(--text-sub)", cursor:"pointer" }}>クリア</button>
                 {inspectors.map(ins=>(
                   <button key={ins.id}
                     onClick={()=>setPrintInspectors(prev=>prev.includes(ins.id)?prev.filter(x=>x!==ins.id):[...prev,ins.id])}
@@ -1090,7 +1110,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
         {Object.values(productMap).map((p) => (
           <div key={p.id} style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px", border:`1px solid ${p.color}44` }}>
             <div style={{ width:10, height:10, borderRadius:2, background:p.color }} />
-            <span style={{ fontSize:12, color:"#cbd5e0" }}>{p.name}</span>
+            <span style={{ fontSize:12, color:"var(--text-faint)" }}>{p.name}</span>
           </div>
         ))}
         <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
@@ -1098,19 +1118,19 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
             <div style={{ width:14, height:7, background:"#8b5cf644", border:"1px solid #8b5cf6" }} />
             <div style={{ width:14, height:7, background:"#8b5cf6aa" }} />
           </div>
-          <span style={{ fontSize:12, color:"#cbd5e0" }}>上:予定 / 下:実績</span>
+          <span style={{ fontSize:12, color:"var(--text-faint)" }}>上:予定 / 下:実績</span>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ width:14, height:14, background:"repeating-linear-gradient(45deg,#fc818166 0,#fc818166 3px,transparent 3px,transparent 6px)", border:"1px solid #fc8181" }} />
-          <span style={{ fontSize:12, color:"#cbd5e0" }}>未達</span>
+          <span style={{ fontSize:12, color:"var(--text-faint)" }}>未達</span>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ width:2, height:14, background:"#f6ad55" }} />
-          <span style={{ fontSize:12, color:"#cbd5e0" }}>納期</span>
+          <span style={{ fontSize:12, color:"var(--text-faint)" }}>納期</span>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:6, background:"#1e2640", borderRadius:6, padding:"4px 10px" }}>
           <div style={{ width:2, height:14, background:"#67e8f9" }} />
-          <span style={{ fontSize:12, color:"#cbd5e0" }}>今日</span>
+          <span style={{ fontSize:12, color:"var(--text-faint)" }}>今日</span>
         </div>
 
       </div>
@@ -1119,7 +1139,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
         <div style={{ minWidth: dateKeys.length * DAY_W + 190 }}>
           {/* 日付ヘッダー */}
           <div style={{ display:"flex", background:"var(--bg-date)", borderBottom:"1px solid var(--border)" }}>
-            <div style={{ width:190, minWidth:190, padding:"10px 12px", fontSize:12, color:"#718096", fontWeight:700 }}>検査員</div>
+            <div style={{ width:190, minWidth:190, padding:"10px 12px", fontSize:12, color:"var(--text-muted)", fontWeight:700 }}>検査員</div>
             <div style={{ display:"flex" }}>
               {dateKeys.map((dk) => {
                 const dt = new Date(dk+"T00:00:00");
@@ -1130,7 +1150,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 return (
                   <div key={dk} className={outOfPrintRange ? "print-hidden" : ""} style={{ width:DAY_W, minWidth:DAY_W, textAlign:"center", fontSize:10, padding:"5px 0 3px", borderLeft:"1px solid #2d374833", position:"relative",
                     color: isToday ? "#67e8f9" : isWE ? "#fc8181" : "#a0aec0",
-                    background: isToday ? "#0e2330" : "transparent",
+                    background: isToday ? "var(--bg-today-cell)" : "transparent",
                   }}>
                     <div style={{ fontSize:9, color: isToday?"#67e8f944":"#4a5568" }}>{dt.getFullYear()}</div>
                     <div style={{ fontWeight: isToday?700:400 }}>{String(dt.getMonth()+1).padStart(2,"0")}/{String(dt.getDate()).padStart(2,"0")}</div>
@@ -1146,7 +1166,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
           {inspectors.map((ins, idx) => {
             const holidaySet={};
             ins.holidays.forEach(h=>{ holidaySet[h.date]=h.half?0.5:0; });
-            const bg = idx%2===0 ? "#111827" : "#0f1117";
+            const bg = idx%2===0 ? "var(--bg-row0)" : "var(--bg-row1)";
 
             return (
               <div key={ins.id} style={{ borderBottom:"2px solid #2d3748" }}>
@@ -1155,7 +1175,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                   <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid var(--border)", display:"flex", alignItems:"center" }}>
                     <div>
                       <div style={{ fontSize:13, fontWeight:600 }}>{ins.name}</div>
-                      <div style={{ fontSize:10, color:"#718096" }}>{ins.workHours}h/日</div>
+                      <div style={{ fontSize:10, color:"var(--text-muted)" }}>{ins.workHours}h/日</div>
                     </div>
                     <div style={{ marginLeft:"auto", fontSize:10, color:"#667eea", fontWeight:700, background:"#667eea22", borderRadius:4, padding:"2px 6px" }}>予定</div>
                   </div>
@@ -1164,7 +1184,7 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                   </div>
                 </div>
                 {/* 実績行 */}
-                <div className="no-print" style={{ display:"flex", background: idx%2===0?"#0d1117":"#0a0d12", borderTop:"1px solid #2d374855" }}>
+                <div className="no-print" style={{ display:"flex", background: idx%2===0?"var(--bg-row-actual)":"var(--bg-row-actual2)", borderTop:"1px solid var(--border)" }}>
                   <div style={{ width:190, minWidth:190, padding:"6px 12px", borderRight:"1px solid var(--border)", display:"flex", alignItems:"center" }}>
                     <div style={{ fontSize:10, color:"#68d391", fontWeight:700, background:"#68d39122", borderRadius:4, padding:"2px 6px", marginLeft:"auto" }}>実績</div>
                   </div>
@@ -1203,12 +1223,12 @@ function GanttView({ inspectors, dateKeys, schedule, orders, productMap, remaini
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
                   <div style={{ width:10, height:10, borderRadius:2, background:p?.color, flexShrink:0 }} />
                   <span style={{ fontSize:13, fontWeight:700, flex:1 }}>{p?.name}</span>
-                  <span style={{ fontSize:11, color:"#718096" }}>〆{fmt(o.deadline)}</span>
+                  <span style={{ fontSize:11, color:"var(--text-muted)" }}>〆{fmt(o.deadline)}</span>
                 </div>
                 {/* 実績 / 注文数 と % */}
                 <div style={{ display:"flex", alignItems:"baseline", gap:6, marginBottom:6 }}>
-                  <span style={{ fontSize:22, fontWeight:900, color:"#e2e8f0" }}>{actualDone.toLocaleString()}</span>
-                  <span style={{ fontSize:13, color:"#718096" }}>/ {o.quantity.toLocaleString()}個</span>
+                  <span style={{ fontSize:22, fontWeight:900, color:"var(--text-main)" }}>{actualDone.toLocaleString()}</span>
+                  <span style={{ fontSize:13, color:"var(--text-muted)" }}>/ {o.quantity.toLocaleString()}個</span>
                   <span style={{ fontSize:18, fontWeight:700, color: actPct>=100?"#68d391":"#a78bfa", marginLeft:"auto" }}>{actPct}%</span>
                 </div>
                 {/* プログレスバー */}
@@ -1469,7 +1489,7 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
     <div>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
         <h2 style={{ margin:0, fontSize:18, color:"#06b6d4" }}>📦 在庫・生産管理</h2>
-        <span style={{ fontSize:12, color:"#718096" }}>製品ごとに在庫・生産数を管理します</span>
+        <span style={{ fontSize:12, color:"var(--text-muted)" }}>製品ごとに在庫・生産数を管理します</span>
       </div>
 
       {/* 製品ごとのサマリー */}
@@ -1479,7 +1499,7 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10, flexWrap:"wrap" }}>
             <div style={{ width:12, height:12, borderRadius:3, background:p.color }} />
             <span style={{ fontSize:15, fontWeight:700, color:p.color }}>{p.name}</span>
-            <span style={{ fontSize:12, color:"#718096" }}>注文合計: {totalOrdered.toLocaleString()}個</span>
+            <span style={{ fontSize:12, color:"var(--text-muted)" }}>注文合計: {totalOrdered.toLocaleString()}個</span>
             <span style={{ fontSize:13, fontWeight:700, color: enough?"#68d391":"#fc8181", marginLeft:"auto" }}>
               {enough ? `✅ 充足` : `🔴 不足: ${shortage.toLocaleString()}個`}
             </span>
@@ -1487,12 +1507,12 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
           {/* 在庫・生産入力 */}
           <div style={{ display:"flex", gap:16, marginBottom:12, flexWrap:"wrap", alignItems:"center" }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:13, color:"#718096" }}>現在庫:</span>
+              <span style={{ fontSize:13, color:"var(--text-muted)" }}>現在庫:</span>
               <input type="number" min="0" value={inventory[p.id] ?? ""}
                 onChange={e => updateStock(p.id, e.target.value)}
                 placeholder="0"
                 style={{ ...S.input, width:100, borderColor:p.color+"66" }} />
-              <span style={{ fontSize:13, color:"#718096" }}>個</span>
+              <span style={{ fontSize:13, color:"var(--text-muted)" }}>個</span>
             </div>
             <span style={{ fontSize:13, color:"#68d391" }}>生産済: {produced.toLocaleString()}個</span>
             <span style={{ fontSize:13, color:"#a78bfa", fontWeight:700 }}>利用可能: {available.toLocaleString()}個</span>
@@ -1504,9 +1524,9 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
               background:"var(--bg-root)", borderRadius:6, marginBottom:4, flexWrap:"wrap",
               border:`1px solid ${ordEnough?"#68d39122":"#fc818133"}`,
             }}>
-              <span style={{ fontSize:12, color:"#718096", minWidth:80 }}>〆{fmt(order.deadline)}</span>
-              <span style={{ fontSize:12, color:"#e2e8f0" }}>{order.quantity.toLocaleString()}個</span>
-              <span style={{ fontSize:12, color:"#a0aec0" }}>充当: {used.toLocaleString()}個</span>
+              <span style={{ fontSize:12, color:"var(--text-muted)", minWidth:80 }}>〆{fmt(order.deadline)}</span>
+              <span style={{ fontSize:12, color:"var(--text-main)" }}>{order.quantity.toLocaleString()}個</span>
+              <span style={{ fontSize:12, color:"var(--text-sub)" }}>充当: {used.toLocaleString()}個</span>
               <span style={{ fontSize:12, fontWeight:700, color: ordEnough?"#68d391":"#fc8181" }}>
                 {ordEnough ? "✅" : `🔴 不足 ${short.toLocaleString()}個`}
               </span>
@@ -1520,7 +1540,7 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
         <div style={{ fontWeight:700, color:"#06b6d4", marginBottom:12 }}>＋ 生産数入力</div>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>製品</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>製品</div>
             <select value={prodForm.productId}
               onChange={e => setProdForm(f=>({...f, productId:e.target.value}))}
               style={{ ...S.input, width:180 }}>
@@ -1531,19 +1551,19 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
             </select>
           </label>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>生産数（個）</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>生産数（個）</div>
             <input type="number" min="1" value={prodForm.qty}
               onChange={e => setProdForm(f=>({...f, qty:e.target.value}))}
               style={{ ...S.input, width:110 }} />
           </label>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>日付</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>日付</div>
             <input type="date" value={prodForm.date}
               onChange={e => setProdForm(f=>({...f, date:e.target.value}))}
               style={{ ...S.inputDate, width:160 }} />
           </label>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>メモ（任意）</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>メモ（任意）</div>
             <input type="text" value={prodForm.note}
               onChange={e => setProdForm(f=>({...f, note:e.target.value}))}
               placeholder="ロット番号など"
@@ -1561,7 +1581,7 @@ function StockManager({ products, productMap, orders, inventory, setInventory, p
             const p = productMap[pr.productId];
             return (
               <div key={pr.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 10px", background:"#1a1f2e", borderRadius:6, marginBottom:4, flexWrap:"wrap" }}>
-                <span style={{ fontSize:12, color:"#718096", minWidth:90 }}>📅 {fmt(pr.date)}</span>
+                <span style={{ fontSize:12, color:"var(--text-muted)", minWidth:90 }}>📅 {fmt(pr.date)}</span>
                 <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                   <div style={{ width:8, height:8, borderRadius:2, background:p?.color }} />
                   <span style={{ fontSize:13, color:p?.color }}>{p?.name}</span>
@@ -1625,7 +1645,7 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
     <div>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
         <h2 style={{ margin:0, fontSize:18, color:"#f6ad55" }}>📋 手動割り当て</h2>
-        <span style={{ fontSize:12, color:"#718096" }}>手動設定した分は自動スケジュールから除外され、残りが自動で再割り当てされます</span>
+        <span style={{ fontSize:12, color:"var(--text-muted)" }}>手動設定した分は自動スケジュールから除外され、残りが自動で再割り当てされます</span>
       </div>
 
       {/* 追加フォーム */}
@@ -1633,13 +1653,13 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
         <div style={{ fontWeight:700, color:"#f6ad55", marginBottom:12 }}>＋ 割り当て追加</div>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>日付</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>日付</div>
             <input type="date" value={form.date}
               onChange={e => setForm(f => ({...f, date: e.target.value}))}
               style={{ ...S.inputDate, width:160 }} />
           </label>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>注文（製品・納期）</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>注文（製品・納期）</div>
             <select value={form.orderId}
               onChange={e => handleOrderChange(e.target.value)}
               style={{ ...S.input, width:220 }}>
@@ -1650,7 +1670,7 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
             </select>
           </label>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>検査員</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>検査員</div>
             <select value={form.inspectorId}
               onChange={e => setForm(f => ({...f, inspectorId: e.target.value}))}
               style={{ ...S.input, width:160 }}>
@@ -1660,7 +1680,7 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
             </select>
           </label>
           <label style={{ fontSize:13 }}>
-            <div style={{ color:"#718096", marginBottom:4 }}>数量（個）</div>
+            <div style={{ color:"var(--text-muted)", marginBottom:4 }}>数量（個）</div>
             <input type="number" min="1" value={form.qty}
               onChange={e => setForm(f => ({...f, qty: e.target.value}))}
               style={{ ...S.input, width:110 }} />
@@ -1671,21 +1691,21 @@ function ManualAssignment({ inspectors, orders, productMap, manualAssignments, s
 
       {/* 登録済み一覧 */}
       {grouped.length === 0 ? (
-        <div style={{ color:"#718096", textAlign:"center", padding:24 }}>手動割り当てはありません</div>
+        <div style={{ color:"var(--text-muted)", textAlign:"center", padding:24 }}>手動割り当てはありません</div>
       ) : (
         grouped.map(({ order, p, items }) => (
           <div key={order.id} style={{ ...S.card, border:`1px solid ${p?.color}33`, marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
               <div style={{ width:12, height:12, borderRadius:3, background:p?.color }} />
               <span style={{ fontWeight:700, color:p?.color }}>{p?.name}</span>
-              <span style={{ fontSize:12, color:"#718096" }}>〆{order.deadline}　合計 {order.quantity.toLocaleString()}個</span>
+              <span style={{ fontSize:12, color:"var(--text-muted)" }}>〆{order.deadline}　合計 {order.quantity.toLocaleString()}個</span>
             </div>
             {items.sort((a,b) => a.date.localeCompare(b.date)).map(m => {
               const ins = inspectors.find(i => i.id === m.inspectorId);
               return (
                 <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", background:"#0f111788", borderRadius:6, marginBottom:4 }}>
-                  <span style={{ fontSize:13, color:"#cbd5e0", minWidth:100 }}>📅 {fmt(m.date)}</span>
-                  <span style={{ fontSize:13, color:"#e2e8f0", minWidth:120 }}>👷 {ins?.name||m.inspectorId}</span>
+                  <span style={{ fontSize:13, color:"var(--text-faint)", minWidth:100 }}>📅 {fmt(m.date)}</span>
+                  <span style={{ fontSize:13, color:"var(--text-main)", minWidth:120 }}>👷 {ins?.name||m.inspectorId}</span>
                   <span style={{ fontSize:13, fontWeight:600, color:"#f6ad55" }}>{m.qty.toLocaleString()}個</span>
                   <button onClick={() => remove(m.id)}
                     style={{ ...S.btnDanger, padding:"3px 10px", fontSize:12, marginLeft:"auto" }}>削除</button>
@@ -1763,18 +1783,18 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
       <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, flexWrap:"wrap" }}>
         <h2 style={{ margin:0, fontSize:18, color:"#68d391" }}>✏️ 実績入力</h2>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ fontSize:13, color:"#718096" }}>日付選択:</span>
+          <span style={{ fontSize:13, color:"var(--text-muted)" }}>日付選択:</span>
           <select value={selectedDate} onChange={e=>handleDateChange(e.target.value)} style={{ ...S.inputDate, width:160 }}>
             {pastDates.map(dk=><option key={dk} value={dk}>{fmt(dk)}{dk===today?" (今日)":""}</option>)}
           </select>
         </div>
-        <div style={{ fontSize:12, color:"#718096" }}>
+        <div style={{ fontSize:12, color:"var(--text-muted)" }}>
           ※ 入力後「保存」ボタンで確定してください
         </div>
       </div>
 
       {daySchedule.length === 0 ? (
-        <div style={{ color:"#718096", padding:"20px", textAlign:"center" }}>この日の予定はありません</div>
+        <div style={{ color:"var(--text-muted)", padding:"20px", textAlign:"center" }}>この日の予定はありません</div>
       ) : (
         <div>
           {daySchedule.map(({ ins, tasks, plannedQty, aKey, actual }) => {
@@ -1797,7 +1817,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                 {/* 検査員名・合計・ボタン */}
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, flexWrap:"wrap" }}>
                   <div style={{ fontWeight:700, fontSize:14 }}>{ins.name}</div>
-                  <div style={{ fontSize:12, color:"#718096" }}>予定: {plannedQty.toLocaleString()}個</div>
+                  <div style={{ fontSize:12, color:"var(--text-muted)" }}>予定: {plannedQty.toLocaleString()}個</div>
                   {hasSaved && (
                     <div style={{ fontSize:13, fontWeight:700, color: isShort?"#fc8181":isOver?"#68d391":"#a78bfa" }}>
                       実績: {savedTotal.toLocaleString()}個
@@ -1842,7 +1862,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
                           <div style={{ width:10, height:10, borderRadius:3, background:p?.color, flexShrink:0 }} />
                           <span style={{ fontSize:13, fontWeight:700, color:p?.color }}>{p?.name}</span>
-                          <span style={{ fontSize:11, color:"#718096", marginLeft:"auto" }}>予定 {planned.toLocaleString()}個</span>
+                          <span style={{ fontSize:11, color:"var(--text-muted)", marginLeft:"auto" }}>予定 {planned.toLocaleString()}個</span>
                         </div>
                         <input type="number" min="0" placeholder={planned}
                           value={val ?? ""}
@@ -1869,7 +1889,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
 
                 {/* メモ */}
                 <label style={{ fontSize:13, display:"block" }}>
-                  <div style={{ color:"#718096", marginBottom:4 }}>遅延原因・メモ（任意）</div>
+                  <div style={{ color:"var(--text-muted)", marginBottom:4 }}>遅延原因・メモ（任意）</div>
                   <input type="text" placeholder="例: 機械トラブル、材料不足..."
                     value={displayNote}
                     onChange={e => setDraftNote(aKey, e.target.value)}
@@ -1878,7 +1898,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                 </label>
 
                 {isShort && (
-                  <div style={{ marginTop:8, padding:"6px 10px", background:"#2d1515", borderRadius:6, fontSize:12, color:"#fc8181", border:"1px solid #fc818133" }}>
+                  <div style={{ marginTop:8, padding:"6px 10px", background:"var(--bg-alert-red)", borderRadius:6, fontSize:12, color:"#fc8181", border:"1px solid #fc818133" }}>
                     📋 残 {(plannedQty-savedTotal).toLocaleString()}個 → 翌日以降に自動再スケジュール
                   </div>
                 )}
@@ -1897,7 +1917,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
               <thead>
                 <tr style={{ background:"#1a1f2e" }}>
                   {["日付","検査員","製品別実績","合計","達成率","メモ"].map(h=>(
-                    <th key={h} style={{ padding:"8px 12px", color:"#718096", textAlign:"left", borderBottom:"1px solid var(--border)" }}>{h}</th>
+                    <th key={h} style={{ padding:"8px 12px", color:"var(--text-muted)", textAlign:"left", borderBottom:"1px solid var(--border)" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1916,7 +1936,7 @@ function ActualsInput({ inspectors, dateKeys, schedule, orders, productMap, actu
                     const prods = val.products || {};
                     return (
                       <tr key={key} style={{ borderBottom:"1px solid #2d374833" }}>
-                        <td style={{ padding:"6px 12px", color:"#a0aec0" }}>{fmt(dk)}</td>
+                        <td style={{ padding:"6px 12px", color:"var(--text-sub)" }}>{fmt(dk)}</td>
                         <td style={{ padding:"6px 12px" }}>{ins?.name||iid}</td>
                         <td style={{ padding:"6px 12px" }}>
                           <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
@@ -2005,7 +2025,7 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
 
           {/* 製品選択 */}
           <label style={{ fontSize:13, display:"block", marginBottom:14, maxWidth:320 }}>
-            <span style={{ color:"#718096", marginRight:8 }}>製品</span>
+            <span style={{ color:"var(--text-muted)", marginRight:8 }}>製品</span>
             <select value={addForm.productId} onChange={e=>setAddForm(f=>({...f,productId:e.target.value}))} style={{ ...S.input, width:"auto", minWidth:160 }}>
               {Object.values(productMap).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -2013,7 +2033,7 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
 
           {/* 納期・数量の行 */}
           <div style={{ marginBottom:10, maxWidth:480 }}>
-            <div style={{ display:"grid", gridTemplateColumns:"180px 130px 36px", gap:8, marginBottom:6, fontSize:12, color:"#718096", padding:"0 4px" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"180px 130px 36px", gap:8, marginBottom:6, fontSize:12, color:"var(--text-muted)", padding:"0 4px" }}>
               <span>納期</span><span>数量（個）</span><span></span>
             </div>
             {addForm.rows.map((row, idx) => (
@@ -2041,17 +2061,17 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
           <div style={{ fontWeight:700, marginBottom:12, color:"#f6ad55" }}>注文編集</div>
           <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
             <label style={{ fontSize:13 }}>
-              <div style={{ color:"#718096", marginBottom:4 }}>製品</div>
+              <div style={{ color:"var(--text-muted)", marginBottom:4 }}>製品</div>
               <select value={editForm.productId} onChange={e=>setEditForm({...editForm,productId:e.target.value})} style={S.input}>
                 {Object.values(productMap).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </label>
             <label style={{ fontSize:13 }}>
-              <div style={{ color:"#718096", marginBottom:4 }}>納期</div>
+              <div style={{ color:"var(--text-muted)", marginBottom:4 }}>納期</div>
               <input type="date" value={editForm.deadline} onChange={e=>setEditForm({...editForm,deadline:e.target.value})} style={S.inputDate} />
             </label>
             <label style={{ fontSize:13 }}>
-              <div style={{ color:"#718096", marginBottom:4 }}>数量（個）</div>
+              <div style={{ color:"var(--text-muted)", marginBottom:4 }}>数量（個）</div>
               <input type="number" min="1" value={editForm.quantity} onChange={e=>setEditForm({...editForm,quantity:e.target.value})} style={{ ...S.input, width:100 }} />
             </label>
             <button onClick={saveEdit} style={S.btnPrimary}>保存</button>
@@ -2070,7 +2090,7 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
               <div style={{ width:14, height:14, borderRadius:3, background:p.color, flexShrink:0 }} />
               <span style={{ fontWeight:700, color:p.color }}>{p.name}</span>
-              <span style={{ fontSize:12, color:"#718096" }}>{pOrders.length}件</span>
+              <span style={{ fontSize:12, color:"var(--text-muted)" }}>{pOrders.length}件</span>
             </div>
             {/* 納期行 */}
             {pOrders.map(o => {
@@ -2079,8 +2099,8 @@ function OrderSettings({ orders, setOrders, productMap, remaining, today }) {
               const atRisk = rem>0.5 && o.deadline>=today;
               return (
                 <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 8px", borderRadius:6, marginBottom:4, background:"#0f111788" }}>
-                  <span style={{ fontSize:13, color:"#cbd5e0", minWidth:100 }}>📅 {fmt(o.deadline)}</span>
-                  <span style={{ fontSize:13, color:"#e2e8f0", minWidth:90 }}>{o.quantity.toLocaleString()}個</span>
+                  <span style={{ fontSize:13, color:"var(--text-faint)", minWidth:100 }}>📅 {fmt(o.deadline)}</span>
+                  <span style={{ fontSize:13, color:"var(--text-main)", minWidth:90 }}>{o.quantity.toLocaleString()}個</span>
                   <span style={{ fontSize:12, fontWeight:600, flex:1, color:missed?"#fc8181":atRisk?"#f6ad55":"#68d391" }}>
                     {missed?`🚨 超過 ${rem.toLocaleString()}個残`:atRisk?`⚠️ ${rem.toLocaleString()}個残`:"✅ 達成可能"}
                   </span>
@@ -2162,23 +2182,23 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
             // ── 詳細編集フォーム ──
             <div>
               <label style={{ fontSize:13, display:"block", marginBottom:14 }}>
-                <span style={{ color:"#718096" }}>検査員名　</span>
+                <span style={{ color:"var(--text-muted)" }}>検査員名　</span>
                 <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...S.input, width:200 }} placeholder="検査員名" />
               </label>
               <label style={{ fontSize:13, display:"block", marginBottom:12 }}>
-                <span style={{ color:"#718096" }}>1日の労働時間（時間）　</span>
+                <span style={{ color:"var(--text-muted)" }}>1日の労働時間（時間）　</span>
                 <input type="number" min="0.5" max="24" step="0.5" value={form.workHours} onChange={e=>setForm({...form,workHours:e.target.value})} style={{ ...S.input, width:80 }} />
               </label>
               <div style={{ marginBottom:14 }}>
-                <div style={{ color:"#718096", fontSize:13, marginBottom:8 }}>担当製品と検査速度（個/時間）</div>
+                <div style={{ color:"var(--text-muted)", fontSize:13, marginBottom:8 }}>担当製品と検査速度（個/時間）</div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   {products.map((p) => {
                     const checked=form.canInspectSet.has(p.id);
                     return (
-                      <div key={p.id} style={{ background:checked?`${p.color}22`:"#0f1117", border:`1px solid ${p.color}${checked?"88":"22"}`, borderRadius:8, padding:"8px 12px", minWidth:120 }}>
+                      <div key={p.id} style={{ background:checked?`${p.color}22`:"var(--bg-chip-off)", border:`1px solid ${p.color}${checked?"88":"22"}`, borderRadius:8, padding:"8px 12px", minWidth:120 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:checked?6:0 }}>
                           <input type="checkbox" checked={checked} onChange={()=>{ const s=new Set(form.canInspectSet); checked?s.delete(p.id):s.add(p.id); setForm({...form,canInspectSet:s}); }} />
-                          <span style={{ fontSize:13, color:checked?p.color:"#718096", fontWeight:checked?700:400 }}>{p.name}</span>
+                          <span style={{ fontSize:13, color:checked?p.color:"var(--text-muted)", fontWeight:checked?700:400 }}>{p.name}</span>
                         </div>
                         {checked && <input type="number" min="1" placeholder="個/時間" value={form.speedPerProduct[p.id]||""} onChange={e=>setForm({...form,speedPerProduct:{...form.speedPerProduct,[p.id]:parseInt(e.target.value)||0}})} style={{ ...S.input, width:"100%", fontSize:12, padding:"4px 8px" }} />}
                       </div>
@@ -2188,7 +2208,7 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
               </div>
               <div style={{ marginBottom:14 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-                  <span style={{ color:"#718096", fontSize:13 }}>休日設定</span>
+                  <span style={{ color:"var(--text-muted)", fontSize:13 }}>休日設定</span>
                   <button onClick={addHoliday} style={{ ...S.btnSecondary, padding:"4px 10px", fontSize:12 }}>+ 追加</button>
                 </div>
                 {form.holidays.map((h,i) => (
@@ -2198,7 +2218,7 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
                       <input type="checkbox" checked={h.half} onChange={e=>updateHoliday(i,"half",e.target.checked)} />
                       <span style={{ color:h.half?"#f6ad55":"#718096" }}>半日休み</span>
                     </label>
-                    <span style={{ fontSize:12, color:"#718096" }}>{h.half?"🌅 半休":"🏖️ 全休"}</span>
+                    <span style={{ fontSize:12, color:"var(--text-muted)" }}>{h.half?"🌅 半休":"🏖️ 全休"}</span>
                     <button onClick={()=>removeHoliday(i)} style={{ ...S.btnDanger, padding:"3px 8px", fontSize:12 }}>✕</button>
                   </div>
                 ))}
@@ -2236,11 +2256,11 @@ function InspectorSettings({ inspectors, setInspectors, products }) {
                     <span style={{ fontSize:11, color:"#4a5568", opacity:0.7 }}>✏️</span>
                   </div>
                 )}
-                <div style={{ fontSize:12, color:"#718096", marginBottom:6 }}>労働時間: {ins.workHours}h/日</div>
+                <div style={{ fontSize:12, color:"var(--text-muted)", marginBottom:6 }}>労働時間: {ins.workHours}h/日</div>
                 <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:6 }}>
                   {ins.canInspect.map(pid=>{ const p=products.find(x=>x.id===pid); const spd=ins.speedPerProduct[pid]; return <span key={pid} style={{ fontSize:11, padding:"2px 7px", borderRadius:4, background:`${p?.color}22`, color:p?.color, border:`1px solid ${p?.color}44` }}>{p?.name}{spd?` ${spd}/h`:""}</span>; })}
                 </div>
-                <div style={{ fontSize:12, color:"#718096" }}>休日: {ins.holidays.length===0?"なし":ins.holidays.map(h=>`${fmt(h.date)}${h.half?"(半)":""}`).join("、")}</div>
+                <div style={{ fontSize:12, color:"var(--text-muted)" }}>休日: {ins.holidays.length===0?"なし":ins.holidays.map(h=>`${fmt(h.date)}${h.half?"(半)":""}`).join("、")}</div>
               </div>
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={()=>startEdit(ins)} style={S.btnSecondary}>詳細編集</button>
@@ -2275,8 +2295,8 @@ function ProductSettings({ products, setProducts }) {
             {editId===p.id && form ? (
               <div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end", marginBottom:12 }}>
-                  <label style={{ fontSize:13 }}><div style={{ color:"#718096", marginBottom:4 }}>製品名</div><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...S.inputDate, width:160 }} /></label>
-                  <label style={{ fontSize:13 }}><div style={{ color:"#718096", marginBottom:4 }}>カラー</div><input type="color" value={form.color} onChange={e=>setForm({...form,color:e.target.value})} style={{ width:48, height:34, borderRadius:6, border:"1px solid #4a5568", background:"none", cursor:"pointer" }} /></label>
+                  <label style={{ fontSize:13 }}><div style={{ color:"var(--text-muted)", marginBottom:4 }}>製品名</div><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...S.inputDate, width:160 }} /></label>
+                  <label style={{ fontSize:13 }}><div style={{ color:"var(--text-muted)", marginBottom:4 }}>カラー</div><input type="color" value={form.color} onChange={e=>setForm({...form,color:e.target.value})} style={{ width:48, height:34, borderRadius:6, border:"1px solid #4a5568", background:"none", cursor:"pointer" }} /></label>
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   <button onClick={save} style={S.btnPrimary}>保存</button>
